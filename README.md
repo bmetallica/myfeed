@@ -86,6 +86,35 @@ Browser-Extension / Android-Scraper
 
 ---
 
+## 🚀 Installation & Setup
+
+Der einfachste Weg, **MyFeed** inklusive aller Komponenten (Backend, Datenbank und KI-Modell) zu starten, ist über **Docker Compose**.
+
+### Voraussetzungen
+* [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/) installiert.
+* Google Chrome (oder ein Chromium-basierter Browser) für die Extension.
+
+---
+
+### 1. Repository klonen
+Kloniere das Projekt zuerst auf deinen lokalen Server oder Rechner:
+```bash
+##myfeed holen
+git clone [https://github.com/bmetallica/myfeed.git](https://github.com/bmetallica/myfeed.git)
+cd myfeed
+
+## Umgebungsvariablen konfigurieren
+cp .env.example .env
+##Stelle sicher, dass die Datenbank-Verbindungsdaten für PostgreSQL mit den Einstellungen in deiner docker-compose.yml übereinstimmen.
+
+##Container bauen und starten
+docker compose up -d --build
+```
+Das FastAPI-Backend ist anschließend unter http://localhost:8000 erreichbar und das Admin-UI unter http://localhost:7999.
+
+Das FastAPI-Backend muss für den Onlinezugang zum RSS-Feed aus dem Internet heraus erreichbar gemacht werden. 
+
+
 ## Architektur
 
 ### Datenfluss
