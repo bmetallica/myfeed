@@ -1,0 +1,15 @@
+use_default_settings: true
+
+server:
+  secret_key: "myfeed-searxng-secret-2026"
+  limiter: false
+  image_proxy: false
+  port: 8080
+  bind_address: "0.0.0.0"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json

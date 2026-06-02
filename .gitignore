@@ -1,0 +1,27 @@
+# ── Secrets ──────────────────────────────────────────────────
+.env
+
+# ── Debug-Ausgaben (werden zur Laufzeit erzeugt) ─────────────
+debug/
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# ── OS / Editor ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# ── Docker ───────────────────────────────────────────────────
+*.log

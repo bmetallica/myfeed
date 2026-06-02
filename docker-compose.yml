@@ -1,0 +1,139 @@
+# ============================================================
+# docker-compose.yml – MyFeed Context-Capture System
+# Startet: PostgreSQL/pgvector (db) + FastAPI Gateway (gateway-api)
+# ============================================================
+
+version: "3.9"
+
+services:
+
+  # ----------------------------------------------------------
+  # Datenbank: PostgreSQL 16 mit pgvector-Erweiterung
+  # ----------------------------------------------------------
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: myfeed-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Persistente Datenbankdaten
+      - pgdata:/var/lib/postgresql/data
+      # Initialisierungsskript wird beim ersten Start einmalig ausgeführt
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - newsfeed-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ----------------------------------------------------------
+  # API Gateway: FastAPI / Uvicorn (Python)
+  # ----------------------------------------------------------
+  gateway-api:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: myfeed-gateway
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Datenbankverbindungs-URL für den Gateway-Container
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    ports:
+      - "${GATEWAY_PORT}:8000"
+    volumes:
+      # Extension-Dateien für den konfigurierten Download-Endpunkt
+      - ./extension:/app/extension:ro
+      # Debug-Ausgaben der Tag-Generierung (Prompt, Ollama-Antwort, geparste Tags)
+      - ./debug:/app/debug
+    extra_hosts:
+      # Ermöglicht Zugriff auf Ollama auf dem Host über host.docker.internal
+      - "host.docker.internal:host-gateway"
+    networks:
+      - newsfeed-net
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ----------------------------------------------------------
+  # Web-Frontend: Admin-Dashboard auf Port FRONTEND_PORT
+  # ----------------------------------------------------------
+  frontend:
+    image: nginx:alpine
+    container_name: myfeed-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-7999}:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    networks:
+      - newsfeed-net
+
+  # ----------------------------------------------------------
+  # SearXNG: Metasuchmaschine für News-Suche
+  # ----------------------------------------------------------
+  searxng:
+    image: searxng/searxng:latest
+    container_name: myfeed-searxng
+    restart: unless-stopped
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    networks:
+      - newsfeed-net
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
+  # ----------------------------------------------------------
+  # Android-Scraper: Chrome-Verlauf via Google MyActivity
+  # Aktivierung: ENABLE_ANDROID_SCRAPER=true in .env
+  # ----------------------------------------------------------
+  android-scraper:
+    build:
+      context: ./android_scraper
+      dockerfile: Dockerfile
+    container_name: myfeed-android-scraper
+    restart: unless-stopped
+    environment:
+      ENABLE_ANDROID_SCRAPER: ${ENABLE_ANDROID_SCRAPER:-false}
+      GATEWAY_URL: http://gateway-api:8000
+      API_BEARER_TOKEN: ${API_BEARER_TOKEN}
+      SCRAPER_INTERVAL_SECS: ${SCRAPER_INTERVAL_SECS:-300}
+      DISPLAY: ":99"
+      CHROME_PROFILE_DIR: "/chrome-profile"
+    ports:
+      # noVNC: einmaliges Google-Login via Browser (http://<SERVER-IP>:6080/vnc.html)
+      - "6080:6080"
+    volumes:
+      # Persistentes Chromium-Profil (Google-Session bleibt nach Neustart erhalten)
+      - chrome-profile:/chrome-profile
+    shm_size: "256mb"
+    networks:
+      - newsfeed-net
+    depends_on:
+      db:
+        condition: service_healthy
+
+# ----------------------------------------------------------
+# Volumes & Netzwerke
+# ----------------------------------------------------------
+volumes:
+  pgdata:
+    driver: local
+  # Persistentes Chromium-Profil für den Android-Scraper
+  chrome-profile:
+    driver: local
+
+networks:
+  newsfeed-net:
+    driver: bridge

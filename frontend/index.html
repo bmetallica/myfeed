@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MyFeed – Admin Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --blue:     #0F3460;
+      --accent:   #E94560;
+      --text:     #c9d1d9;
+      --muted:    #8b949e;
+      --green:    #3fb950;
+      --yellow:   #d29922;
+      --red:      #f85149;
+      --radius:   8px;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      padding: 0 16px 48px;
+    }
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 0;
+      margin: 0 -16px 32px;
+      text-align: center;
+    }
+    header h1 { font-size: 20px; color: #fff; }
+    header h1 span { color: var(--accent); }
+    header p  { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+    .container { max-width: 720px; margin: 0 auto; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      font-size: 15px;
+      color: #fff;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card h2 .badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 20px;
+      background: var(--blue);
+      color: #fff;
+      text-transform: uppercase;
+    }
+
+    label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    input[type="text"], input[type="password"], input[type="url"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 8px 10px;
+      margin-bottom: 14px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus { border-color: var(--blue); }
+
+    .row { display: flex; gap: 12px; }
+    .row > * { flex: 1; }
+
+    button {
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    button:hover { opacity: .85; }
+    button:disabled { opacity: .4; cursor: default; }
+    button.danger { background: var(--accent); }
+    button.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      display: none;
+    }
+    .status.show { display: block; }
+    .status.ok     { background: #1c3a20; color: var(--green); border: 1px solid #2ea04333; }
+    .status.warn   { background: #2d2000; color: var(--yellow); border: 1px solid #d2992233; }
+    .status.error  { background: #3a1c1c; color: var(--red); border: 1px solid #f8514933; }
+    .status.info   { background: #0d1b2a; color: #79c0ff; border: 1px solid #1f6feb33; }
+
+    .steps { list-style: none; counter-reset: steps; }
+    .steps li {
+      counter-increment: steps;
+      padding: 8px 0 8px 36px;
+      position: relative;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .steps li:last-child { border-bottom: none; }
+    .steps li::before {
+      content: counter(steps);
+      position: absolute;
+      left: 0;
+      top: 8px;
+      width: 22px;
+      height: 22px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      line-height: 22px;
+    }
+    .steps li strong { color: var(--text); }
+    code {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #79c0ff;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid #ffffff44;
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+    .info-item label { color: var(--muted); font-size: 11px; }
+    .info-item span  { color: var(--text); font-size: 13px; font-weight: 600; }
+
+    /* ── Tags ── */
+    .tag-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .tag-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 10px; font-size: 12px;
+    }
+    .tag-chip.persistent { border-color: #1f6feb55; background: #0d1b2a; }
+    .tag-chip .tw { font-size: 10px; font-weight: 700; padding: 1px 5px;
+                    border-radius: 10px; background: #ffffff14; }
+    .tw-high { color: var(--green); }
+    .tw-mid  { color: var(--yellow); }
+    .tw-low  { color: var(--muted); }
+    .tag-chip .tdel {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 13px; line-height: 1; padding: 0 0 0 2px;
+    }
+    .tag-chip .tdel:hover { color: var(--red); opacity: 1; }
+    .tag-type-badge {
+      font-size: 10px; padding: 1px 5px; border-radius: 10px; font-weight: 600;
+    }
+    .badge-auto     { background: #1f3a1f; color: var(--green); }
+    .badge-manual   { background: #1f2a3a; color: #79c0ff; }
+    .badge-persist  { background: #2a1f3a; color: #d2a8ff; }
+    select {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 8px 10px; margin-bottom: 14px; outline: none;
+      transition: border-color .15s;
+    }
+    select:focus { border-color: var(--blue); }
+    input[type="time"] {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 8px 10px; margin-bottom: 14px; outline: none;
+      transition: border-color .15s;
+    }
+    input[type="time"]:focus { border-color: var(--blue); }
+    input[type="number"] {
+      width: 80px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 8px 10px; outline: none; transition: border-color .15s;
+    }
+    input[type="number"]:focus { border-color: var(--blue); }
+    .section-label {
+      color: var(--muted); font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em;
+      margin: 18px 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;
+    }
+
+    /* ── News ── */
+    .news-item {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px 14px; margin-bottom: 10px;
+    }
+    .news-item:last-child { margin-bottom: 0; }
+    .news-item .news-headline {
+      font-size: 13px; font-weight: 600; color: var(--text);
+      margin-bottom: 4px; line-height: 1.4;
+    }
+    .news-item .news-snippet {
+      font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.5;
+    }
+    .news-item .news-meta {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    }
+    .news-method-badge {
+      font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 600;
+    }
+    .badge-ddg     { background: #1e2f1e; color: #3fb950; }
+    .badge-gemini  { background: #1a1a2e; color: #79c0ff; }
+    .badge-searxng { background: #1e1e2e; color: #cba6f7; }
+    .toggle-group {
+      display: flex; gap: 0; border: 1px solid var(--border); border-radius: 6px;
+      overflow: hidden; margin-bottom: 14px;
+    }
+    .toggle-group label {
+      flex: 1; text-align: center; padding: 8px 12px; cursor: pointer;
+      font-size: 12px; color: var(--muted); margin: 0;
+      transition: background .15s, color .15s;
+    }
+    .toggle-group input[type="checkbox"] { display: none; }
+    .toggle-group input:checked + label {
+      background: var(--blue); color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>My<span>Feed</span> <span style="color:var(--muted);font-weight:400">Admin Dashboard</span></h1>
+    <p>Google Android Sync · Kontext-Erfassung</p>
+  </header>
+
+  <div class="container">
+
+    <!-- ── 1. Verbindungseinstellungen ── -->
+    <div class="card">
+      <h2>🔌 Verbindungseinstellungen</h2>
+      <label for="gatewayUrl">Gateway URL</label>
+      <input type="url" id="gatewayUrl" placeholder="https://myfeed.meine-domain.tld">
+
+      <label for="apiKey">API Bearer Token</label>
+      <input type="password" id="apiKey" placeholder="Bearer-Token aus .env">
+
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button id="btnSaveSettings">Speichern</button>
+        <button class="secondary" id="btnTestConn">Verbindung testen</button>
+      </div>
+      <div class="status" id="statusSettings"></div>
+    </div>
+
+    <!-- ── 2. Extension Download ── -->
+    <div class="card">
+      <h2>📦 Vorkonfigurierte Extension herunterladen</h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">
+        Lädt ein Extension-Paket herunter, in dem deine Gateway-URL und dein Token bereits
+        vorausgefüllt sind. Nach der Installation ist <strong>kein manuelles Konfigurieren</strong> mehr nötig.
+      </p>
+      <div class="row">
+        <button id="btnDlChrome">↓ Chrome (.zip)</button>
+        <button id="btnDlFirefox">↓ Firefox (.xpi)</button>
+      </div>
+      <div class="status" id="statusDownload"></div>
+    </div>
+
+    <!-- ── 3. Android Chrome Sync via noVNC ── -->
+    <div class="card">
+      <h2>🤖 Android Chrome Sync <span class="badge">Container</span></h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">
+        Chromium läuft dauerhaft im Server-Container. <strong>Einmalig</strong> bei Google
+        anmelden – danach wird der Chrome-Verlauf (inkl. Android-Geräte) automatisch alle
+        5 Minuten synchronisiert. Die Session bleibt nach Container-Neustarts erhalten.
+      </p>
+
+      <div id="vncWrapper" style="position:relative;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#000;">
+        <iframe id="vncFrame" style="width:100%;height:540px;border:none;display:block;" allow="fullscreen"></iframe>
+        <div id="vncPlaceholder" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--bg);">
+          <div style="font-size:48px;">🖥️</div>
+          <p style="color:var(--muted);font-size:13px;text-align:center;">
+            Container-Browser (Chromium via noVNC)<br>
+            <span style="font-size:11px;">Verbinden um den Browser anzuzeigen &amp; Google-Login durchzuführen</span>
+          </p>
+          <button id="btnVncConnect">Verbinden</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap;">
+        <button class="secondary" id="btnVncNewTab">↗ Neues Fenster</button>
+        <span id="vncUrlLabel" style="color:var(--muted);font-size:11px;"></span>
+      </div>
+      <div class="status" id="statusVnc"></div>
+    </div>
+
+    <!-- ── 5. KI / Ollama Einstellungen ── -->
+    <div class="card">
+      <h2>🤖 KI-Einstellungen <span class="badge">Ollama</span></h2>
+
+      <label for="ollamaUrl">Ollama Server URL</label>
+      <input type="url" id="ollamaUrl" placeholder="http://192.168.66.225:11434">
+
+      <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
+        <button class="secondary" id="btnOllamaTest" style="white-space:nowrap">Verbindung testen</button>
+        <span id="ollamaStatusInline" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+
+      <label for="ollamaModel">Modell</label>
+      <select id="ollamaModel">
+        <option value="">— zuerst Verbindung testen —</option>
+      </select>
+
+      <div class="row">
+        <div>
+          <label for="tagSchedule1">Zeitplan 1 (CEST)</label>
+          <input type="time" id="tagSchedule1" value="23:30">
+        </div>
+        <div>
+          <label for="tagSchedule2">Zeitplan 2 (optional)</label>
+          <input type="time" id="tagSchedule2" placeholder="leer = deaktiviert">
+        </div>
+      </div>
+
+      <button id="btnSaveOllama">Einstellungen speichern</button>
+      <div class="status" id="statusOllama"></div>
+    </div>
+
+    <!-- ── 6. Tags ── -->
+    <div class="card">
+      <h2>🏷️ Tags</h2>
+
+      <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+        <button id="btnGenerateTags">Jetzt generieren</button>
+        <button class="secondary" id="btnRefreshTags">↻ Aktualisieren</button>
+        <span id="tagsGenStatus" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+
+      <div class="section-label">KI-generierte Tags</div>
+      <div class="tag-wrap" id="autoTagsWrap">
+        <span style="color:var(--muted);font-size:12px">Noch keine Tags generiert.</span>
+      </div>
+
+      <div class="section-label" style="margin-top:22px">Manuelle (persistente) Tags</div>
+      <div class="tag-wrap" id="manualTagsWrap" style="margin-bottom:16px">
+        <span style="color:var(--muted);font-size:12px">Keine manuellen Tags vorhanden.</span>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:160px">
+          <label for="newTagName">Neuer Tag</label>
+          <input type="text" id="newTagName" placeholder="Tag-Name" style="margin-bottom:0">
+        </div>
+        <div style="flex:1;min-width:120px">
+          <label for="newTagCategory">Kategorie</label>
+          <input type="text" id="newTagCategory" placeholder="z.B. IT/Security" style="margin-bottom:0">
+        </div>
+        <div>
+          <label for="newTagCategoryWeight">Kat.-Gewicht</label>
+          <input type="number" id="newTagCategoryWeight" min="1" max="10" value="10" title="Wie wichtig ist diese Hauptkategorie für dich (1-10)">
+        </div>
+        <div>
+          <label for="newTagWeight">Tag-Gewicht (1–10)</label>
+          <input type="number" id="newTagWeight" min="1" max="10" value="8">
+        </div>
+        <button id="btnAddTag" style="margin-bottom:0;height:36px">Hinzufügen</button>
+      </div>
+      <div class="status" id="statusTags"></div>
+
+      <!-- Langzeit-Tag-Speicher -->
+      <div class="section-label" style="margin-top:22px">🗄️ Langzeit-Tag-Speicher</div>
+      <small style="color:var(--muted);font-size:11px;display:block;margin-bottom:10px">
+        Wird bei jeder Tag-Generierung automatisch aktualisiert (laufender Mittelwert).
+        Zeigt akkumulierte Interessen über mehrere Generierungen hinweg.
+      </small>
+      <div class="tag-wrap" id="longTermTagsWrap" style="margin-bottom:10px">
+        <span style="color:var(--muted);font-size:12px">Noch keine Langzeit-Tags vorhanden.</span>
+      </div>
+      <button class="secondary" id="btnClearLongTermTags" style="font-size:12px;padding:4px 10px">🗑️ Alle Langzeit-Tags löschen</button>
+      <div class="status" id="statusLongTermTags"></div>
+    </div>
+
+    <!-- ── 8. News-Suche Einstellungen ── -->
+    <div class="card">
+      <h2>📰 News-Suche <span class="badge">Einstellungen</span></h2>
+
+      <div class="section-label">Suchmethoden aktivieren</div>
+      <div class="toggle-group">
+        <input type="checkbox" id="newsDdgEnabled">
+        <label for="newsDdgEnabled">🦆 DuckDuckGo</label>
+        <input type="checkbox" id="newsSearxngEnabled">
+        <label for="newsSearxngEnabled">🔍 SearXNG</label>
+      </div>
+
+      <div id="searxngConfigBlock">
+        <label for="searxngUrl">SearXNG URL</label>
+        <input type="text" id="searxngUrl" placeholder="http://searxng:8080">
+        <small style="color:#aaa">Standard: http://searxng:8080 (interner Docker-Service)</small>
+      </div>
+
+      <div class="toggle-group" style="margin-top:12px">
+        <input type="checkbox" id="newsOllamaRerank">
+        <label for="newsOllamaRerank">🤖 Ollama Re-Ranking (Relevanzfilter + Sortierung)</label>
+      </div>
+      <small style="color:var(--muted);font-size:11px;display:block;margin-bottom:12px">
+        Ollama bewertet alle gefundenen Artikel und sortiert irrelevante aus. Benötigt konfiguriertes Ollama-Modell.
+      </small>
+
+      <div class="toggle-group" style="margin-top:4px">
+        <input type="checkbox" id="newsLongTermEnabled">
+        <label for="newsLongTermEnabled">🗄️ Langzeit-Tag-Speicher bei News-Suche einbeziehen</label>
+      </div>
+      <small style="color:var(--muted);font-size:11px;display:block;margin-bottom:12px">
+        Bezieht akkumulierte Langzeit-Interessen in die News-Suche ein. Aktuelle Tags haben immer Vorrang.
+      </small>
+
+      <div class="section-label">Sprache &amp; Zeitraum</div>
+
+      <div class="row">
+        <div>
+          <label for="newsLanguages">Sprachen</label>
+          <input type="text" id="newsLanguages" placeholder="z.B. de,en" style="width:100%">
+          <small style="color:var(--muted);font-size:11px">de, en, fr, es, it … kommagetrennt</small>
+        </div>
+        <div>
+          <label for="newsTimelimit">Zeitraum</label>
+          <select id="newsTimelimit" style="width:100%">
+            <option value="d">Letzte 24 Stunden</option>
+            <option value="w" selected>Letzte 7 Tage</option>
+            <option value="m">Letzte 30 Tage</option>
+            <option value="">Kein Limit</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="newsMaxPerTag">Max. Ergebnisse pro Tag</label>
+          <input type="number" id="newsMaxPerTag" min="1" max="20" value="5"
+                 style="width:100%;margin-bottom:14px">
+        </div>
+        <div>
+          <label for="newsSchedule">Zeitplan (CEST, optional)</label>
+          <input type="time" id="newsSchedule" placeholder="leer = deaktiviert">
+        </div>
+      </div>
+
+      <button id="btnSaveNewsSettings">Einstellungen speichern</button>
+      <div class="status" id="statusNewsSettings"></div>
+    </div>
+
+    <!-- ── 9. News-Ergebnisse ── -->
+    <div class="card">
+      <h2>📰 News-Ergebnisse</h2>
+
+      <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+        <button id="btnSearchNews">Jetzt suchen</button>
+        <button class="secondary" id="btnRefreshNews">↻ Aktualisieren</button>
+        <span id="newsSearchStatus" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div style="margin-bottom:14px;font-size:12px;color:var(--muted)">
+        📡 RSS-Feed:
+        <a id="rssUrlLink" href="#" target="_blank" rel="noopener noreferrer"
+           style="color:var(--accent);word-break:break-all" title="RSS-Feed öffnen"></a>
+        <span id="rssUrlPlaceholder">Gateway-URL speichern um RSS-Link zu sehen</span>
+        <button class="secondary" id="btnCopyRss" style="display:none;margin-left:6px;padding:1px 7px;font-size:11px">Kopieren</button>
+      </div>
+
+      <div id="newsResultsWrap">
+        <span style="color:var(--muted);font-size:12px">Noch keine News-Ergebnisse für heute.</span>
+      </div>
+      <div class="status" id="statusNews"></div>
+    </div>
+
+    <!-- ── 10. Anleitung ── -->
+    <div class="card">
+      <h2>📋 Einrichtungsanleitung</h2>
+      <ol class="steps">
+        <li>
+          <strong>Scraper starten:</strong> In der <code>.env</code> auf dem Server
+          <code>ENABLE_ANDROID_SCRAPER=true</code> setzen, dann<br>
+          <code>docker compose up -d android-scraper</code>.
+        </li>
+        <li>
+          <strong>Einmalig bei Google anmelden:</strong> Oben auf <em>Verbinden</em> klicken.
+          Im sichtbaren Chromium-Fenster mit dem Google-Konto einloggen, das mit deinen
+          Android-Geräten verknüpft ist. Chrome Sync aktivieren.
+        </li>
+        <li>
+          <strong>Fertig – läuft automatisch:</strong> Der Container scrapet danach alle
+          5 Minuten Google MyActivity. Die Session übersteht Container-Neustarts
+          (persistentes Volume <code>chrome-profile</code>).
+        </li>
+        <li>
+          <strong>Browser-Extension (optional):</strong> Für das Erfassen des PC-Browser-Verlaufs
+          das vorkonfigurierte Paket oben herunterladen und unter
+          <code>chrome://extensions</code> &rarr; Entwicklermodus &rarr;
+          „Entpackte Extension laden" installieren. Gateway URL und Token sind vorausgefüllt.
+        </li>
+      </ol>
+    </div>
+
+  </div><!-- /container -->
+
+  <script>
+    // ── Einstellungen aus localStorage laden ──────────────────────────────────
+    const $ = id => document.getElementById(id);
+
+    function loadSettings() {
+      $('gatewayUrl').value = localStorage.getItem('myfeed_gateway') || '';
+      $('apiKey').value     = localStorage.getItem('myfeed_token')   || '';
+    }
+
+    function showStatus(elId, msg, type) {
+      const el = $(elId);
+      el.textContent = msg;
+      el.className = `status ${type} show`;
+    }
+
+    function getConfig() {
+      return {
+        url:   ($('gatewayUrl').value || '').replace(/\/$/, ''),
+        token: $('apiKey').value || '',
+      };
+    }
+
+    // ── Einstellungen speichern ───────────────────────────────────────────────
+    $('btnSaveSettings').addEventListener('click', () => {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusSettings', 'Bitte beide Felder ausfüllen.', 'warn');
+        return;
+      }
+      localStorage.setItem('myfeed_gateway', url);
+      localStorage.setItem('myfeed_token',   token);
+      showStatus('statusSettings', '✓ Einstellungen gespeichert.', 'ok');
+      updateRssUrl(url);
+    });
+
+    function updateRssUrl(gatewayUrl) {
+      const rssUrl = gatewayUrl ? `${gatewayUrl}/rss?days=7` : '';
+      const link = $('rssUrlLink');
+      const ph   = $('rssUrlPlaceholder');
+      const btn  = $('btnCopyRss');
+      if (rssUrl) {
+        link.href        = rssUrl;
+        link.textContent = rssUrl;
+        link.style.display = 'inline';
+        ph.style.display   = 'none';
+        btn.style.display  = 'inline-block';
+      } else {
+        link.style.display = 'none';
+        ph.style.display   = 'inline';
+        btn.style.display  = 'none';
+      }
+    }
+
+    $('btnCopyRss').addEventListener('click', () => {
+      const url = $('rssUrlLink').href;
+      navigator.clipboard.writeText(url).then(() => {
+        $('btnCopyRss').textContent = '✓ Kopiert';
+        setTimeout(() => { $('btnCopyRss').textContent = 'Kopieren'; }, 2000);
+      }).catch(() => {
+        prompt('RSS-URL kopieren:', url);
+      });
+    });
+
+    // ── Verbindungstest ───────────────────────────────────────────────────────
+    $('btnTestConn').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url) { showStatus('statusSettings', 'Gateway URL fehlt.', 'warn'); return; }
+      showStatus('statusSettings', 'Verbindung wird getestet…', 'info');
+      try {
+        const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(8000) });
+        if (r.ok) showStatus('statusSettings', '✓ Gateway erreichbar und gesund.', 'ok');
+        else      showStatus('statusSettings', `Fehler: HTTP ${r.status}`, 'error');
+      } catch (e) {
+        showStatus('statusSettings', `Netzwerkfehler: ${e.message}`, 'error');
+      }
+    });
+
+    // ── noVNC – Container-Browser ─────────────────────────────────────────────
+    function getNoVncUrl() {
+      // noVNC läuft direkt auf dem Server (Port 6080, kein Reverse-Proxy).
+      // window.location.hostname liefert die echte Server-IP, da das Frontend
+      // ebenfalls direkt über die IP (Port 7999) aufgerufen wird.
+      return `http://${window.location.hostname}:6080/vnc.html?autoconnect=true&resize=scale&reconnect=true`;
+    }
+
+    function connectVnc() {
+      const url = getNoVncUrl();
+      $('vncUrlLabel').textContent = url.split('?')[0];
+      $('vncFrame').src = url;
+      $('vncPlaceholder').style.display = 'none';
+      showStatus('statusVnc',
+        'Verbinde mit Container-Browser … Im Fenster bei Google anmelden, danach läuft die Synchronisierung automatisch.',
+        'info');
+    }
+
+    $('btnVncConnect').addEventListener('click', connectVnc);
+    $('btnVncNewTab').addEventListener('click', () => {
+      const url = getNoVncUrl();
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    });
+
+    // ── Extension-Download ────────────────────────────────────────────────────
+    async function downloadExtension(platform) {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusDownload', 'Bitte zuerst Gateway URL und Token speichern.', 'warn');
+        return;
+      }
+      showStatus('statusDownload', '<span class="spinner"></span>Paket wird generiert…', 'info');
+      $('statusDownload').innerHTML = '<span class="spinner"></span>Paket wird generiert…';
+      $('statusDownload').className = 'status info show';
+      $('btnDlChrome').disabled = $('btnDlFirefox').disabled = true;
+
+      try {
+        const r = await fetch(`${url}/api/v1/download/extension`, {
+          method: 'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ platform, gateway_url: url }),
+          signal: AbortSignal.timeout(20000),
+        });
+
+        if (!r.ok) {
+          const msg = await r.text().catch(() => `HTTP ${r.status}`);
+          showStatus('statusDownload', `❌ Fehler: ${msg}`, 'error');
+          return;
+        }
+
+        const blob = await r.blob();
+        const ext  = platform === 'firefox' ? 'xpi' : 'zip';
+        const a    = document.createElement('a');
+        a.href     = URL.createObjectURL(blob);
+        a.download = `myfeed-${platform}-preconfigured.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+
+        showStatus('statusDownload',
+          `✓ ${platform === 'chrome' ? 'Chrome (.zip)' : 'Firefox (.xpi)'} heruntergeladen. ` +
+          'Extension laden → sofort einsatzbereit, kein Konfigurieren nötig.', 'ok');
+      } catch (e) {
+        showStatus('statusDownload', `❌ Netzwerkfehler: ${e.message}`, 'error');
+      } finally {
+        $('btnDlChrome').disabled = $('btnDlFirefox').disabled = false;
+      }
+    }
+
+    $('btnDlChrome').addEventListener('click',  () => downloadExtension('chrome'));
+    $('btnDlFirefox').addEventListener('click', () => downloadExtension('firefox'));
+
+    // ── Ollama-Einstellungen ──────────────────────────────────────────────────
+    async function loadOllamaSettings() {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      try {
+        const r = await fetch(`${url}/api/v1/settings/ollama`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return;
+        const data = await r.json();
+        $('ollamaUrl').value      = data.ollama_url      || '';
+        $('tagSchedule1').value   = data.tag_schedule_1  || '23:30';
+        $('tagSchedule2').value   = data.tag_schedule_2  || '';
+        const savedModel          = data.ollama_model    || '';
+        if (savedModel) {
+          const opt = document.createElement('option');
+          opt.value = savedModel; opt.textContent = savedModel; opt.selected = true;
+          $('ollamaModel').innerHTML = '';
+          $('ollamaModel').appendChild(opt);
+        }
+      } catch (_) {}
+    }
+
+    async function testOllamaAndLoadModels() {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusOllama', 'Bitte zuerst Gateway URL und Token speichern.', 'warn');
+        return;
+      }
+      $('ollamaStatusInline').textContent = '⏳ Verbinde …';
+      try {
+        const r = await fetch(`${url}/api/v1/ollama/models`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (!r.ok) {
+          $('ollamaStatusInline').textContent = `❌ HTTP ${r.status}`;
+          return;
+        }
+        const { models } = await r.json();
+        const sel = $('ollamaModel');
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">— Modell wählen —</option>';
+        models.forEach(m => {
+          const o = document.createElement('option');
+          o.value = m; o.textContent = m;
+          if (m === prev) o.selected = true;
+          sel.appendChild(o);
+        });
+        $('ollamaStatusInline').textContent = `✓ ${models.length} Modell(e) gefunden`;
+      } catch (e) {
+        $('ollamaStatusInline').textContent = `❌ ${e.message}`;
+      }
+    }
+
+    $('btnOllamaTest').addEventListener('click', testOllamaAndLoadModels);
+
+    $('btnSaveOllama').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusOllama', 'Bitte zuerst Gateway URL und Token speichern.', 'warn');
+        return;
+      }
+      const payload = {
+        settings: {
+          ollama_url:     $('ollamaUrl').value.trim(),
+          ollama_model:   $('ollamaModel').value,
+          tag_schedule_1: $('tagSchedule1').value,
+          tag_schedule_2: $('tagSchedule2').value,
+        }
+      };
+      showStatus('statusOllama', 'Speichert …', 'info');
+      try {
+        const r = await fetch(`${url}/api/v1/settings/ollama`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.ok) showStatus('statusOllama', '✓ Einstellungen gespeichert. Zeitplan aktualisiert.', 'ok');
+        else       showStatus('statusOllama', `❌ Fehler: HTTP ${r.status}`, 'error');
+      } catch (e) {
+        showStatus('statusOllama', `❌ Netzwerkfehler: ${e.message}`, 'error');
+      }
+    });
+
+    // ── Tags ─────────────────────────────────────────────────────────────────
+    function weightClass(w) {
+      if (w >= 8) return 'tw-high';
+      if (w >= 5) return 'tw-mid';
+      return 'tw-low';
+    }
+
+    function renderTags(tags) {
+      const autoWrap   = $('autoTagsWrap');
+      const manualWrap = $('manualTagsWrap');
+      const autoTags   = tags.filter(t => t.type === 'auto');
+      const manualTags = tags.filter(t => t.type === 'manual');
+
+      function chipHtml(t) {
+        const wc     = weightClass(t.weight);
+        const eff    = t.effective_weight ?? t.weight;
+        const effWc  = weightClass(eff);
+        const pBadge = t.persistent
+          ? '<span class="tag-type-badge badge-persist">📌 persistent</span> '
+          : '';
+        const tBadge = t.type === 'auto'
+          ? '<span class="tag-type-badge badge-auto">KI</span> '
+          : '<span class="tag-type-badge badge-manual">manuell</span> ';
+        const dateHint = t.source_date
+          ? `<span style="color:var(--muted);font-size:10px">${t.source_date}</span> ` : '';
+        const catHint = t.category
+          ? `<span style="color:var(--muted);font-size:10px" title="Kategorie: ${t.category}, Kat.-Gewicht: ${t.category_weight}">📂 ${t.category} (${t.category_weight})</span> `
+          : '';
+        const effBadge = eff !== t.weight
+          ? `<span class="tw ${effWc}" title="Effektiv-Gewicht = Tag(${t.weight}) × Kat.(${t.category_weight}) / 10">→${eff}</span>`
+          : '';
+        return `<span class="tag-chip${t.persistent ? ' persistent' : ''}" data-id="${t.id}">
+          ${pBadge}${tBadge}${dateHint}
+          <span>${t.name}</span>
+          ${catHint}
+          <span class="tw ${wc}" title="Tag-Gewicht">${t.weight}</span>
+          ${effBadge}
+          <button class="tdel" title="Tag löschen" onclick="deleteTag('${t.id}')">×</button>
+        </span>`;
+      }
+
+      autoWrap.innerHTML   = autoTags.length
+        ? autoTags.map(chipHtml).join('')
+        : '<span style="color:var(--muted);font-size:12px">Noch keine KI-Tags generiert.</span>';
+      manualWrap.innerHTML = manualTags.length
+        ? manualTags.map(chipHtml).join('')
+        : '<span style="color:var(--muted);font-size:12px">Keine manuellen Tags vorhanden.</span>';
+    }
+
+    async function loadTags() {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      try {
+        const r = await fetch(`${url}/api/v1/tags`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return;
+        const { tags } = await r.json();
+        renderTags(tags);
+      } catch (_) {}
+    }
+
+    async function deleteTag(id) {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      try {
+        const r = await fetch(`${url}/api/v1/tags/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.ok) loadTags();
+        else showStatus('statusTags', `❌ Fehler beim Löschen: HTTP ${r.status}`, 'error');
+      } catch (e) {
+        showStatus('statusTags', `❌ ${e.message}`, 'error');
+      }
+    }
+
+    async function loadLongTermTags() {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      const wrap = $('longTermTagsWrap');
+      try {
+        const r = await fetch(`${url}/api/v1/tags/longterm`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return;
+        const { tags } = await r.json();
+        if (!tags || tags.length === 0) {
+          wrap.innerHTML = '<span style="color:var(--muted);font-size:12px">Noch keine Langzeit-Tags vorhanden.</span>';
+          return;
+        }
+        wrap.innerHTML = tags.map(t => {
+          const eff = t.effective_weight;
+          const effBadge = eff !== t.weight ? `<span class="badge" style="background:#444;margin-left:3px">→${eff}</span>` : '';
+          const catBadge = t.category ? `<span class="badge" style="background:#2a3a2a;margin-left:3px">📂 ${t.category} ×${t.category_weight}</span>` : '';
+          const cntBadge = `<span class="badge" style="background:#2a2a3a;margin-left:3px">×${t.mention_count}</span>`;
+          return `<span class="chip" style="background:#1e2e1e">
+            <span class="badge">${t.weight}</span>${effBadge}${catBadge}${cntBadge}
+            ${t.name}
+            <button onclick="deleteLongTermTag('${t.id}')" title="Löschen"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;padding:0 0 0 4px;font-size:13px">✕</button>
+          </span>`;
+        }).join('');
+      } catch (_) {}
+    }
+
+    async function deleteLongTermTag(id) {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      try {
+        const r = await fetch(`${url}/api/v1/tags/longterm/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.ok) loadLongTermTags();
+        else showStatus('statusLongTermTags', `❌ Fehler: HTTP ${r.status}`, 'error');
+      } catch (e) {
+        showStatus('statusLongTermTags', `❌ ${e.message}`, 'error');
+      }
+    }
+
+    $('btnClearLongTermTags').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) { showStatus('statusLongTermTags', 'Bitte zuerst Gateway URL und Token speichern.', 'warn'); return; }
+      if (!confirm('Wirklich alle Langzeit-Tags löschen?')) return;
+      try {
+        const r = await fetch(`${url}/api/v1/tags/longterm`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok) {
+          showStatus('statusLongTermTags', `✓ ${data.deleted} Langzeit-Tags gelöscht.`, 'ok');
+          loadLongTermTags();
+        } else {
+          showStatus('statusLongTermTags', `❌ Fehler: HTTP ${r.status}`, 'error');
+        }
+      } catch (e) {
+        showStatus('statusLongTermTags', `❌ ${e.message}`, 'error');
+      }
+    });
+
+    $('btnRefreshTags').addEventListener('click', () => { loadTags(); loadLongTermTags(); });
+
+    $('btnAddTag').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusTags', 'Bitte zuerst Gateway URL und Token speichern.', 'warn');
+        return;
+      }
+      const name            = $('newTagName').value.trim();
+      const weight          = parseInt($('newTagWeight').value, 10);
+      const category        = $('newTagCategory').value.trim();
+      const category_weight = parseInt($('newTagCategoryWeight').value, 10);
+      if (!name)  { showStatus('statusTags', 'Tag-Name fehlt.', 'warn'); return; }
+      if (weight < 1 || weight > 10)          { showStatus('statusTags', 'Tag-Gewichtung muss 1–10 sein.', 'warn'); return; }
+      if (category_weight < 1 || category_weight > 10) { showStatus('statusTags', 'Kategoriegewichtung muss 1–10 sein.', 'warn'); return; }
+      try {
+        const r = await fetch(`${url}/api/v1/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ name, weight, category, category_weight }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.ok) {
+          $('newTagName').value = '';
+          $('newTagCategory').value = '';
+          showStatus('statusTags', `✓ Tag "${name}" angelegt.`, 'ok');
+          loadTags();
+        } else if (r.status === 409) {
+          showStatus('statusTags', `Tag "${name}" existiert bereits.`, 'warn');
+        } else {
+          showStatus('statusTags', `❌ Fehler: HTTP ${r.status}`, 'error');
+        }
+      } catch (e) {
+        showStatus('statusTags', `❌ ${e.message}`, 'error');
+      }
+    });
+
+    $('btnGenerateTags').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusTags', 'Bitte zuerst Gateway URL und Token speichern.', 'warn');
+        return;
+      }
+      $('tagsGenStatus').textContent = '⏳ Generierung läuft …';
+      $('btnGenerateTags').disabled = true;
+      try {
+        const r = await fetch(`${url}/api/v1/tags/generate`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(300000),  // 5 min für große LLM-Anfragen
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.success) {
+          $('tagsGenStatus').textContent = `✓ ${data.tags_saved} Tags für ${data.date} gespeichert`;
+          loadTags();
+          loadLongTermTags();
+        } else if (data.skipped) {
+          $('tagsGenStatus').textContent = `ℹ️ Keine Einträge für ${data.date}`;
+        } else {
+          $('tagsGenStatus').textContent = `❌ ${data.detail || data.error || 'Fehler'}`;
+        }
+      } catch (e) {
+        $('tagsGenStatus').textContent = `❌ ${e.message}`;
+      } finally {
+        $('btnGenerateTags').disabled = false;
+      }
+    });
+
+    // ── News-Einstellungen ─────────────────────────────────────────────────────
+    async function loadNewsSettings() {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      try {
+        const r = await fetch(`${url}/api/v1/settings/news`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        $('newsDdgEnabled').checked      = d.news_duckduckgo_enabled === 'true';
+        $('newsSearxngEnabled').checked  = d.news_searxng_enabled === 'true';
+        $('searxngUrl').value            = d.searxng_url || 'http://searxng:8080';
+        $('newsOllamaRerank').checked    = d.news_ollama_rerank === 'true';
+        $('newsLongTermEnabled').checked = d.long_term_tags_enabled === 'true';
+        $('newsMaxPerTag').value         = d.news_max_results_per_tag || '5';
+        $('newsSchedule').value          = d.news_schedule || '';
+        $('newsLanguages').value         = d.news_languages || 'de,en';
+        $('newsTimelimit').value         = d.news_timelimit || 'w';
+      } catch (_) {}
+    }
+
+    $('btnSaveNewsSettings').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusNewsSettings', 'Bitte zuerst Gateway URL und Token speichern.', 'warn');
+        return;
+      }
+      const payload = {
+        settings: {
+          news_duckduckgo_enabled:  $('newsDdgEnabled').checked     ? 'true' : 'false',
+          news_searxng_enabled:     $('newsSearxngEnabled').checked  ? 'true' : 'false',
+          searxng_url:              $('searxngUrl').value.trim(),
+          news_ollama_rerank:       $('newsOllamaRerank').checked    ? 'true' : 'false',
+          long_term_tags_enabled:   $('newsLongTermEnabled').checked ? 'true' : 'false',
+          news_max_results_per_tag: $('newsMaxPerTag').value,
+          news_schedule:            $('newsSchedule').value,
+          news_languages:           $('newsLanguages').value.trim(),
+          news_timelimit:           $('newsTimelimit').value,
+        }
+      };
+      showStatus('statusNewsSettings', 'Speichert …', 'info');
+      try {
+        const r = await fetch(`${url}/api/v1/settings/news`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.ok) showStatus('statusNewsSettings', '✓ Einstellungen gespeichert.', 'ok');
+        else       showStatus('statusNewsSettings', `❌ Fehler: HTTP ${r.status}`, 'error');
+      } catch (e) {
+        showStatus('statusNewsSettings', `❌ ${e.message}`, 'error');
+      }
+    });
+
+    // ── News-Ergebnisse ────────────────────────────────────────────────────────
+    function renderNews(news) {
+      const wrap = $('newsResultsWrap');
+      if (!news.length) {
+        wrap.innerHTML = '<span style="color:var(--muted);font-size:12px">Noch keine News-Ergebnisse für heute.</span>';
+        return;
+      }
+      // Group by tag
+      const byTag = {};
+      news.forEach(n => {
+        if (!byTag[n.tag_name]) byTag[n.tag_name] = { weight: n.tag_weight, items: [] };
+        byTag[n.tag_name].items.push(n);
+      });
+
+      let html = '';
+      Object.entries(byTag)
+        .sort(([,a],[,b]) => b.weight - a.weight)
+        .forEach(([tagName, group]) => {
+          const wc = group.weight >= 8 ? 'tw-high' : group.weight >= 5 ? 'tw-mid' : 'tw-low';
+          html += `<div class="section-label">
+            <span>${tagName}</span>
+            <span class="tw ${wc}" style="margin-left:6px;font-size:11px">▲${group.weight}</span>
+          </div>`;
+          group.items.forEach(n => {
+            const methodBadge = n.search_method === 'searxng'
+              ? '<span class="news-method-badge badge-searxng">SearXNG</span>'
+              : '<span class="news-method-badge badge-ddg">DuckDuckGo</span>';
+            const src = n.source_name
+              ? `<span style="color:var(--muted);font-size:11px">${n.source_name}</span>` : '';
+            html += `<div class="news-item">
+              <div class="news-headline">
+                <a href="${n.url}" target="_blank" rel="noopener noreferrer"
+                   style="color:inherit;text-decoration:none"
+                   onmouseover="this.style.textDecoration='underline'"
+                   onmouseout="this.style.textDecoration='none'">${n.headline}</a>
+              </div>
+              ${n.snippet ? `<div class="news-snippet">${n.snippet}</div>` : ''}
+              <div class="news-meta">
+                ${methodBadge} ${src}
+                <button class="tdel" title="Löschen" style="margin-left:auto"
+                  onclick="deleteNewsItem('${n.id}')">× löschen</button>
+              </div>
+            </div>`;
+          });
+        });
+      wrap.innerHTML = html;
+    }
+
+    async function loadNews() {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      const today = new Date().toISOString().slice(0, 10);
+      try {
+        const r = await fetch(`${url}/api/v1/news?date_str=${today}`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return;
+        const { news } = await r.json();
+        renderNews(news);
+      } catch (_) {}
+    }
+
+    async function deleteNewsItem(id) {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      try {
+        const r = await fetch(`${url}/api/v1/news/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (r.ok) loadNews();
+        else showStatus('statusNews', `❌ Fehler: HTTP ${r.status}`, 'error');
+      } catch (e) {
+        showStatus('statusNews', `❌ ${e.message}`, 'error');
+      }
+    }
+
+    $('btnRefreshNews').addEventListener('click', loadNews);
+
+    $('btnSearchNews').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusNews', 'Bitte zuerst Gateway URL und Token speichern.', 'warn');
+        return;
+      }
+      $('newsSearchStatus').textContent = '⏳ Suche gestartet …';
+      $('newsSearchStatus').style.whiteSpace = 'normal';
+      $('btnSearchNews').disabled = true;
+      try {
+        const r = await fetch(`${url}/api/v1/news/search`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (r.status === 202) {
+          $('newsSearchStatus').textContent =
+            '⏳ Suche läuft im Hintergrund (DDG + SearXNG + Bilder + Ollama) – '
+            + 'in 1–2 Min auf ↻ Aktualisieren klicken.';
+        } else if (r.ok) {
+          const data = await r.json().catch(() => ({}));
+          $('newsSearchStatus').textContent = data.status === 'started'
+            ? '⏳ Suche läuft – in 1–2 Min auf ↻ Aktualisieren klicken.'
+            : `✓ ${data.results_found ?? ''} gefunden`;
+        } else {
+          const data = await r.json().catch(() => ({}));
+          $('newsSearchStatus').textContent = `❌ ${data.detail || 'HTTP ' + r.status}`;
+        }
+      } catch (e) {
+        $('newsSearchStatus').textContent = `❌ ${e.message}`;
+      } finally {
+        $('btnSearchNews').disabled = false;
+      }
+    });
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    loadSettings();
+    loadOllamaSettings();
+    loadTags();
+    loadLongTermTags();
+    loadNewsSettings();
+    loadNews();
+    updateRssUrl(localStorage.getItem('myfeed_gateway') || '');
+  </script>
+</body>
+</html>
