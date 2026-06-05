@@ -441,10 +441,7 @@ Alle Endpunkte (außer `/health` und `/rss`) erfordern `Authorization: Bearer <t
 - [x] Sentence-Embeddings für pgvector (Embedding Worker, BAAI/bge-small-en-v1.5)
 - [x] Persönliche Aktivitäts-Zeitachse (MyActivities Timeline)
 - [ ] Semantische Ähnlichkeitssuche via pgvector
-- [ ] Mehrbenutzer-Unterstützung
-- [ ] Mobile App / PWA
-- [ ] Webhook-Unterstützung für neue News
-- [ ] Export-Funktion (OPML, JSON)
+
 
 ---
 
