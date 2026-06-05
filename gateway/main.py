@@ -2463,7 +2463,7 @@ def _rfc2822_date(date_str: str) -> str:
     dependencies=[Depends(verify_token)],
 )
 def get_timeline(
-    date_str: Optional[str] = Query(default=None, description="Datum YYYY-MM-DD (Standard: heute)"),
+    date_str: Optional[str] = Query(default=None, alias="date", description="Datum YYYY-MM-DD (Standard: heute)"),
 ):
     """Liefert alle Aktivitäts-Einträge für einen Tag."""
     if date_str:
