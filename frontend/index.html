@@ -34,9 +34,10 @@
       margin: 0 -16px 32px;
       text-align: center;
     }
-    header h1 { font-size: 20px; color: #fff; }
-    header h1 span { color: var(--accent); }
-    header p  { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    header h1 { font-size: 26px; font-weight: 700; color: #fff; text-shadow: 0 0 8px rgba(15, 52, 96, 0.7); }
+header h1 span { color: var(--accent); text-shadow: 0 0 5px var(--blue); }
+header p { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.rss-header-link { color: var(--white); font-size: 15px; margin-top: 4px; font-weight: 600; animation: glow 2s infinite alternate; }
 
     .container { max-width: 720px; margin: 0 auto; }
 
@@ -172,8 +173,13 @@
     .info-item label { color: var(--muted); font-size: 11px; }
     .info-item span  { color: var(--text); font-size: 13px; font-weight: 600; }
 
-    /* ── Tags ── */
-    .tag-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+/* ── Tags ── */
+.tag-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+@keyframes glow {
+  from { text-shadow: 0 0 5px var(--blue); opacity: 0.8; }
+  to { text-shadow: 0 0 15px var(--blue), 0 0 5px var(--accent); opacity: 1; }
+}
     .tag-chip {
       display: inline-flex; align-items: center; gap: 5px;
       background: var(--bg); border: 1px solid var(--border);
@@ -263,6 +269,7 @@
   <header>
     <h1>My<span>Feed</span> <span style="color:var(--muted);font-weight:400">Admin Dashboard</span></h1>
     <p>Google Android Sync · Kontext-Erfassung</p>
+    <a id="rssHeaderLink" class="rss-header-link">RSS Feed: -</a>
   </header>
 
   <div class="container">
@@ -293,6 +300,7 @@
       <div class="row">
         <button id="btnDlChrome">↓ Chrome (.zip)</button>
         <button id="btnDlFirefox">↓ Firefox (.xpi)</button>
+        <button id="btnDlVscode">↓ VSCode (.vsix)</button>
       </div>
       <div class="status" id="statusDownload"></div>
     </div>
@@ -540,6 +548,7 @@
     function loadSettings() {
       $('gatewayUrl').value = localStorage.getItem('myfeed_gateway') || '';
       $('apiKey').value     = localStorage.getItem('myfeed_token')   || '';
+      updateRssUrl(localStorage.getItem('myfeed_gateway') || '');
     }
 
     function showStatus(elId, msg, type) {
@@ -571,16 +580,21 @@
     function updateRssUrl(gatewayUrl) {
       const rssUrl = gatewayUrl ? `${gatewayUrl}/rss?days=7` : '';
       const link = $('rssUrlLink');
+      const headerLink = $('rssHeaderLink');
       const ph   = $('rssUrlPlaceholder');
       const btn  = $('btnCopyRss');
       if (rssUrl) {
         link.href        = rssUrl;
         link.textContent = rssUrl;
+        headerLink.textContent = 'RSS Feed: ' + rssUrl;
         link.style.display = 'inline';
+        headerLink.style.display = 'inline';
         ph.style.display   = 'none';
         btn.style.display  = 'inline-block';
       } else {
         link.style.display = 'none';
+        headerLink.textContent = 'RSS Feed: -';
+        headerLink.style.display = 'inline';
         ph.style.display   = 'inline';
         btn.style.display  = 'none';
       }
@@ -644,7 +658,7 @@
       showStatus('statusDownload', '<span class="spinner"></span>Paket wird generiert…', 'info');
       $('statusDownload').innerHTML = '<span class="spinner"></span>Paket wird generiert…';
       $('statusDownload').className = 'status info show';
-      $('btnDlChrome').disabled = $('btnDlFirefox').disabled = true;
+      $('btnDlChrome').disabled = $('btnDlFirefox').disabled = $('btnDlVscode').disabled = true;
 
       try {
         const r = await fetch(`${url}/api/v1/download/extension`, {
@@ -679,12 +693,59 @@
       } catch (e) {
         showStatus('statusDownload', `❌ Netzwerkfehler: ${e.message}`, 'error');
       } finally {
-        $('btnDlChrome').disabled = $('btnDlFirefox').disabled = false;
+        $('btnDlChrome').disabled = $('btnDlFirefox').disabled = $('btnDlVscode').disabled = false;
+      }
+    }
+
+    async function downloadVscodeExtension() {
+      const { url, token } = getConfig();
+      if (!url || !token) {
+        showStatus('statusDownload', 'Bitte zuerst Gateway URL und Token speichern.', 'warn');
+        return;
+      }
+      $('statusDownload').innerHTML = '<span class="spinner"></span>Paket wird generiert…';
+      $('statusDownload').className = 'status info show';
+      $('btnDlChrome').disabled = $('btnDlFirefox').disabled = $('btnDlVscode').disabled = true;
+
+      try {
+        const r = await fetch(`${url}/api/v1/download/vscode-extension`, {
+          method: 'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ gateway_url: url }),
+          signal: AbortSignal.timeout(20000),
+        });
+
+        if (!r.ok) {
+          const msg = await r.text().catch(() => `HTTP ${r.status}`);
+          showStatus('statusDownload', `❌ Fehler: ${msg}`, 'error');
+          return;
+        }
+
+        const blob = await r.blob();
+        const a    = document.createElement('a');
+        a.href     = URL.createObjectURL(blob);
+        a.download = 'myfeed-vscode-preconfigured.vsix';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+
+        showStatus('statusDownload',
+          '✓ VSCode (.vsix) heruntergeladen. ' +
+          'In VSCode: Strg+Shift+P → "Install from VSIX…" → sofort einsatzbereit.', 'ok');
+      } catch (e) {
+        showStatus('statusDownload', `❌ Netzwerkfehler: ${e.message}`, 'error');
+      } finally {
+        $('btnDlChrome').disabled = $('btnDlFirefox').disabled = $('btnDlVscode').disabled = false;
       }
     }
 
     $('btnDlChrome').addEventListener('click',  () => downloadExtension('chrome'));
     $('btnDlFirefox').addEventListener('click', () => downloadExtension('firefox'));
+    $('btnDlVscode').addEventListener('click',  downloadVscodeExtension);
 
     // ── Ollama-Einstellungen ──────────────────────────────────────────────────
     async function loadOllamaSettings() {

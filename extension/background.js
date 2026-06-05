@@ -485,7 +485,7 @@ async function syncChromeHistory() {
       } catch { continue; }
 
       await sendToGateway({
-        source:    "android_chrome",
+        source:    "browser_history",
         title:     item.title,
         url:       item.url,
         timestamp: item.lastVisitTime ? new Date(item.lastVisitTime).toISOString() : undefined,

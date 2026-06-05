@@ -3,13 +3,14 @@
   <img src="https://img.shields.io/badge/PostgreSQL-16+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/Ollama-local%20LLM-black?style=for-the-badge&logo=ollama&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
+  <img src="https://img.shields.io/badge/VSCode-Extension-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" />
 </p>
 
 <h1 align="center">🗞️ MyFeed</h1>
 <p align="center"><strong>Selbstgehosteter, KI-gestützter personalisierter Newsfeed</strong></p>
 <p align="center">
-  Analysiert dein Browserverlauf · Generiert Interessen-Tags via Ollama · Sucht passende News · Liefert einen RSS-Feed
+  Analysiert Browsing- und IDE-Aktivität · Generiert Interessen-Tags via Ollama · Sucht passende News · Liefert einen RSS-Feed
 </p>
 
 ---
@@ -25,6 +26,7 @@
 - [Admin-Dashboard](#admin-dashboard)
 - [RSS-Feed](#rss-feed)
 - [Browser-Extension](#browser-extension)
+- [VSCode-Extension](#vscode-extension)
 - [Datenbank-Schema](#datenbank-schema)
 - [API-Endpunkte](#api-endpunkte)
 - [Sicherheit](#sicherheit)
@@ -34,13 +36,15 @@
 
 ## Überblick
 
-**MyFeed** ist ein vollständig selbstgehostetes System, das aus deinem Browserverlauf automatisch Interessenprofile erstellt und darauf basierend täglich personalisierte News-Artikel sammelt.
+**MyFeed** ist ein vollständig selbstgehostetes System, das aus deinem Browsing- und IDE-Verhalten automatisch Interessenprofile erstellt und darauf basierend täglich personalisierte News-Artikel sammelt.
 
 Kein Cloud-Dienst, keine Datenweitergabe – alles läuft lokal.
 
 ```
-Browser-Extension / Android-Scraper
-           │  Browser-Aktivität
+Browser-Extension (Chrome/Firefox)
+VSCode-Extension
+Android-Scraper (Google MyActivity)
+           │  Kontext-Ereignisse (POST /api/v1/context)
            ▼
    ┌──────────────────┐
    │  FastAPI Gateway  │  ← Admin-Dashboard (Port 7999)
@@ -51,8 +55,8 @@ Browser-Extension / Android-Scraper
      │             │
      ▼             ▼
 ┌─────────┐  ┌──────────┐
-│ PostgreSQL│  │  Ollama  │  ← Lokales LLM (Tag-Generierung + Re-Ranking)
-│ pgvector │  │ (extern) │
+│PostgreSQL│  │  Ollama  │  ← Lokales LLM (Tag-Generierung + Re-Ranking)
+│pgvector  │  │ (extern) │
 └─────────┘  └──────────┘
             │
      ┌──────┴──────┐
@@ -79,9 +83,11 @@ Browser-Extension / Android-Scraper
 | 🗄️ **Langzeit-Tag-Speicher** | Akkumuliert Interessen über Zeit (laufender Mittelwert) |
 | 📡 **RSS-Feed** | Kompatibel mit allen Feed-Readern; Top-Artikel prominent platziert |
 | 🌐 **Admin-Dashboard** | Web-UI für Tags, Settings, News-Ergebnisse und Ollama-Konfiguration |
-| 🔌 **Browser-Extension** | Chrome & Firefox MV3, Dwell-Time-Filter, Keyword-Filter |
+| 🔌 **Browser-Extension** | Chrome & Firefox MV3, kumulativer Dwell-Timer, Blocklist, Sucherfassung |
+| 💻 **VSCode-Extension** | Erfasst aktive Projekte und Dateien aus der IDE |
 | 🤖 **Android-Scraper** | Liest Google MyActivity, extrahiert Browsing-Daten |
 | ⏰ **Automatische Zeitpläne** | Tag-Generierung und News-Suche via APScheduler (CEST) |
+| 📦 **Vorkonfigurierte Downloads** | Chrome, Firefox und VSCode direkt aus dem Dashboard herunterladen |
 | 🔒 **Bearer-Token-Auth** | Alle API-Endpunkte geschützt, `hmac.compare_digest` |
 
 ---
@@ -117,14 +123,23 @@ Das FastAPI-Backend muss für den Onlinezugang zum RSS-Feed aus dem Internet her
 
 ## Architektur
 
+### Datenquellen und Source-Labels
+
+| Source | Erzeugt durch | Beschreibung |
+|---|---|---|
+| `browser_chrome` | Browser-Extension | Aktiver Tab ≥ Dwell-Schwelle (kumuliert) |
+| `browser_history` | Browser-Extension | Chrome-Verlauf-Sync (alle 15 min, 7 Tage) |
+| `search_google` / `search_ddg` / … | Browser-Extension | Automatisch erkannte Suchanfragen |
+| `google_activity` | Android-Scraper | Google MyActivity |
+| `vscode` | VSCode-Extension | Aktive Dateien und Workspace-Info |
+
 ### Datenfluss
 
-1. **Kontext-Erfassung**: Browser-Extension oder Android-Scraper senden Seitenbesuche an `POST /api/v1/context`
+1. **Kontext-Erfassung**: Clients senden Ereignisse an `POST /api/v1/context`
 2. **Tag-Generierung** (manuell oder geplant):
-   - Schritt 1: Ollama analysiert die Browsing-Titel → Kategorien + Gewichtungen
+   - Schritt 1: Ollama analysiert Browsing-Titel → Kategorien + Gewichtungen
    - Schritt 2: Ollama generiert pro Kategorie spezifische Tags
-   - Nicht-persistente Auto-Tags werden ersetzt; Langzeit-Speicher akkumuliert
-3. **News-Suche** (manuell oder geplant): Aktive Tags → DuckDuckGo/SearXNG → optionales Ollama-Re-Ranking → DB
+3. **News-Suche** (manuell oder geplant): Tags → DuckDuckGo/SearXNG → optionales Re-Ranking → DB
 4. **Ausgabe**: RSS-Feed (`/rss`), Admin-Dashboard (Port 7999)
 
 ### Gewichtungs-Formel
@@ -140,7 +155,7 @@ effective_weight = max(1, min(10, round(tag_weight × category_weight / 10)))
 | Service | Image | Port | Beschreibung |
 |---|---|---|---|
 | `gateway-api` | Python 3.12-slim | 8000 | FastAPI-Backend, Kernlogik |
-| `frontend` | nginx:alpine | 7999 | Admin-Dashboard (SPA) |
+| `frontend` | nginx:alpine | 7999 | Admin-Dashboard |
 | `db` | pgvector/pgvector:pg16 | intern | PostgreSQL 16 + pgvector |
 | `android-scraper` | Python 3.12-slim | intern | Google-MyActivity-Scraper |
 | `searxng` | searxng/searxng | intern | Selbstgehostete Meta-Suchmaschine |
@@ -154,6 +169,7 @@ effective_weight = max(1, min(10, round(tag_weight × category_weight / 10)))
 - Docker ≥ 24 + Docker Compose V2
 - [Ollama](https://ollama.ai) erreichbar (lokal oder im Netzwerk) mit einem installierten Modell
 - Optional: Chrome 109+ oder Firefox 109+ für die Browser-Extension
+- Optional: VSCode 1.82+ für die VSCode-Extension
 
 ### 1. Repository klonen
 
@@ -179,7 +195,7 @@ POSTGRES_PASSWORD=<sicheres-passwort>
 ### 3. System starten
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 ### 4. Ollama-URL konfigurieren
@@ -213,15 +229,6 @@ Im Dashboard: **News-Suche** → Suchmethode aktivieren → **Jetzt suchen**
 | `ENABLE_ANDROID_SCRAPER` | `false` | Android-Scraper aktivieren |
 | `SCRAPER_INTERVAL_SECS` | `300` | Scrape-Intervall in Sekunden |
 
-### System-Einstellungen (Admin-Dashboard)
-
-Alle weiteren Einstellungen werden im Dashboard unter den jeweiligen Karten konfiguriert und in der Datenbank (`system_settings`) gespeichert:
-
-- **Ollama**: URL, Modell, Zeitpläne für Tag-Generierung
-- **News-Suche**: DuckDuckGo, SearXNG, Sprachen, Zeitraum, Max-Ergebnisse, Re-Ranking
-- **Tags**: manuelle persistente Tags mit Kategorie-Gewichtung
-- **Langzeit-Speicher**: optionale Einbeziehung bei der News-Suche
-
 ---
 
 ## Admin-Dashboard
@@ -231,9 +238,10 @@ Aufrufbar unter **http://localhost:7999** (oder konfigurierbarer Port).
 | Karte | Funktion |
 |---|---|
 | Verbindung | Gateway-URL + Bearer-Token eintragen |
-| Kontext-Queue | Gespeicherte Browser-Aktivitäten anzeigen |
+| **Extension Download** | Vorkonfigurierte Pakete für Chrome (.zip), Firefox (.xpi) und **VSCode (.vsix)** herunterladen |
+| Kontext-Queue | Gespeicherte Ereignisse anzeigen |
 | Ollama | Modell wählen, Tag-Generierung konfigurieren |
-| Tags | KI-Tags und manuelle Tags verwalten, Langzeit-Speicher |
+| Tags | KI-Tags und manuelle Tags verwalten |
 | News-Suche | Einstellungen, manuelle Auslösung |
 | News-Ergebnisse | Gefundene Artikel anzeigen |
 | RSS | RSS-Feed-URL anzeigen und kopieren |
@@ -246,9 +254,9 @@ Aufrufbar unter **http://localhost:7999** (oder konfigurierbarer Port).
 GET /rss
 ```
 
-- Standardmäßig kein Auth erforderlich (öffentlicher Lesezugriff)
-- Artikel mit `effective_weight > 8` werden als **Zukunfts-Pin** um 23:00 Uhr platziert
-- Enthält `pubDate` aus dem Original-Artikel (via HTML-Metadaten-Extraktion)
+- Kein Auth erforderlich (öffentlicher Lesezugriff)
+- Artikel mit `effective_weight > 8` werden als Top-Ergebnisse platziert
+- Enthält `pubDate` aus dem Original-Artikel
 - Kompatibel mit allen Standard-RSS-Readern (Feedly, NewsBlur, Miniflux, …)
 
 ---
@@ -257,26 +265,67 @@ GET /rss
 
 ### Installation
 
-**Chrome:**
+**Vorkonfiguriert (empfohlen):**  
+Im Admin-Dashboard auf **↓ Chrome (.zip)** oder **↓ Firefox (.xpi)** klicken – Gateway-URL und Token sind bereits vorausgefüllt.
+
+**Manuell – Chrome:**
 1. `chrome://extensions` → Entwicklermodus aktivieren
 2. „Entpackte Erweiterung laden" → Ordner `extension/` wählen
 
-**Firefox:**
+**Manuell – Firefox:**
 1. `about:debugging#/runtime/this-firefox`
 2. „Temporäres Add-on laden" → `extension/manifest.json` wählen
 
 ### Funktionsweise
 
-- Seiten werden nur erfasst, wenn der Tab **≥ 45 Sekunden** aktiv war
-- Keyword-Filter: nur Seiten, deren URL/Titel ein konfiguriertes Keyword enthält
-- Konfigurierbar: Gateway-URL, Bearer-Token, Keyword-Liste
+- **Kumulativer Dwell-Timer**: Tab muss ≥ `dwellSecs` (Standard: 15 s) kumuliert aktiv gewesen sein – Tab-Wechsel pausiert den Timer, kehrt man zurück läuft er weiter
+- **Blocklist**: Domains wie Banking, Shopping, Social-Media werden nie erfasst (konfigurierbar)
+- **Sucherfassung**: Suchanfragen auf Google, Bing, DuckDuckGo, GitHub, YouTube u.a. werden sofort gesendet
+- **Chrome-Verlauf-Sync**: Alle 15 Minuten werden Verlaufseinträge der letzten 7 Tage synchronisiert (`source: browser_history`)
+- **Seitenkontext**: Meta-Description, H1 und Textausschnitte werden mitgeschickt (bis 2000 Zeichen)
+- **Konfigurierbar**: Gateway-URL, Bearer-Token, Dwell-Zeit, Cooldown, Blocklist
+
+---
+
+## VSCode-Extension
+
+### Installation
+
+**Vorkonfiguriert (empfohlen):**  
+Im Admin-Dashboard auf **↓ VSCode (.vsix)** klicken. In VSCode: `Strg+Shift+P` → *"Install from VSIX…"* → Datei auswählen. Gateway-URL und Token werden automatisch übernommen.
+
+**Manuell:**
+```bash
+cd vscode-extension
+npm install
+npm run compile
+# Dann in VSCode: Strg+Shift+P → "Install from VSIX..." oder F5 für Entwicklungsmodus
+```
+
+### Einstellungen (VSCode Settings)
+
+| Einstellung | Standard | Beschreibung |
+|---|---|---|
+| `myfeed.gatewayUrl` | `http://localhost:8000` | Gateway-URL |
+| `myfeed.bearerToken` | *(leer)* | API Bearer Token |
+| `myfeed.dwellSeconds` | `15` | Mindestverweilzeit pro Datei in Sekunden |
+| `myfeed.cooldownMinutes` | `30` | Cooldown pro Dateipfad |
+| `myfeed.blocklist` | `["node_modules", ".git", …]` | Ignorierte Pfad-Segmente |
+| `myfeed.enabled` | `true` | Extension aktivieren/deaktivieren |
+
+### Funktionsweise
+
+- Datei ≥ `dwellSeconds` aktiv → `POST /api/v1/context` mit `source: vscode`
+- Beim Start / Workspace-Wechsel → Workspace-Name, Git-Branch und README-Snippet werden sofort gesendet
+- Status-Bar zeigt `$(rss) MyFeed: OK` / `✗`; Klick öffnet den Output-Channel mit Logs
+- Commands: `MyFeed: Gateway-Verbindung testen`, `MyFeed: Status anzeigen`
 
 ---
 
 ## Datenbank-Schema
 
 ```
-context_queue     – Erfasste Browsing-Ereignisse (Rohdaten)
+context_queue     – Erfasste Kontext-Ereignisse (Rohdaten aller Quellen)
 tags              – KI-generierte und manuelle Interessen-Tags
 long_term_tags    – Akkumulierter Langzeit-Interessens-Speicher
 news_results      – Gefundene News-Artikel
@@ -311,15 +360,14 @@ Alle Endpunkte (außer `/health` und `/rss`) erfordern `Authorization: Bearer <t
 | `DELETE` | `/api/v1/tags/{id}` | Tag löschen |
 | `POST` | `/api/v1/tags/generate` | Tag-Generierung auslösen |
 | `GET` | `/api/v1/tags/longterm` | Langzeit-Tags abrufen |
-| `DELETE` | `/api/v1/tags/longterm` | Alle Langzeit-Tags löschen |
-| `DELETE` | `/api/v1/tags/longterm/{id}` | Einzelnen Langzeit-Tag löschen |
-| `GET` | `/api/v1/news` | News-Ergebnisse abrufen |
 | `POST` | `/api/v1/news/search` | News-Suche auslösen |
-| `GET` | `/api/v1/settings/news` | News-Einstellungen lesen |
-| `PUT` | `/api/v1/settings/news` | News-Einstellungen speichern |
+| `GET` | `/api/v1/news` | News-Ergebnisse abrufen |
 | `GET` | `/api/v1/settings/ollama` | Ollama-Einstellungen lesen |
 | `PUT` | `/api/v1/settings/ollama` | Ollama-Einstellungen speichern |
-| `GET` | `/api/v1/ollama/models` | Verfügbare Ollama-Modelle |
+| `GET` | `/api/v1/settings/news` | News-Einstellungen lesen |
+| `PUT` | `/api/v1/settings/news` | News-Einstellungen speichern |
+| `POST` | `/api/v1/download/extension` | Vorkonfiguriertes Browser-Paket (Chrome/Firefox) |
+| `POST` | `/api/v1/download/vscode-extension` | Vorkonfiguriertes VSCode-Paket (.vsix) |
 
 ---
 
@@ -337,7 +385,6 @@ Alle Endpunkte (außer `/health` und `/rss`) erfordern `Authorization: Bearer <t
 - Reverse Proxy mit TLS (nginx / Caddy / Traefik)
 - Rate Limiting vorschalten
 - `API_BEARER_TOKEN` regelmäßig rotieren
-- Swagger-UI deaktivieren: `docs_url=None` in `main.py`
 
 ---
 

@@ -51,6 +51,7 @@ services:
     volumes:
       # Extension-Dateien für den konfigurierten Download-Endpunkt
       - ./extension:/app/extension:ro
+      - ./vscode-extension:/app/vscode-extension:ro
       # Debug-Ausgaben der Tag-Generierung (Prompt, Ollama-Antwort, geparste Tags)
       - ./debug:/app/debug
     extra_hosts:

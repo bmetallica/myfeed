@@ -184,6 +184,11 @@ class ExtensionBuildRequest(BaseModel):
         return v
 
 
+class VscodeExtensionBuildRequest(BaseModel):
+    """Anfrage-Nutzlast für den vorkonfigurierten VSCode-Extension-Download."""
+    gateway_url: str
+
+
 class SettingsBulkPayload(BaseModel):
     """Bulk-Update für system_settings (nur erlaubte Keys)."""
     settings: dict
@@ -1048,6 +1053,90 @@ def download_extension(req: ExtensionBuildRequest):
         buf,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+_VSCODE_EXT_DIR = Path("/app/vscode-extension")
+
+_VSCODE_EXT_FILES = [
+    "package.json",
+    "out/extension.js",
+    "out/gateway.js",
+    "out/collector.js",
+    "out/settings.js",
+]
+
+_VSIX_CONTENT_TYPES = """\
+<?xml version="1.0" encoding="utf-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension=".vsixmanifest" ContentType="text/xml" />
+  <Default Extension=".json" ContentType="application/json" />
+  <Default Extension=".js" ContentType="application/javascript" />
+</Types>"""
+
+_VSIX_MANIFEST = """\
+<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
+  <Metadata>
+    <Identity Language="en-US" Id="myfeed-vscode" Version="1.0.0" Publisher="myfeed" TargetPlatform="universal" />
+    <DisplayName>MyFeed</DisplayName>
+    <Description xml:space="preserve">Sendet VSCode-Kontext an den MyFeed Gateway zur Interessensgenerierung</Description>
+    <Tags>myfeed,personalization,context</Tags>
+    <Categories>Other</Categories>
+    <Properties>
+      <Property Id="Microsoft.VisualStudio.Code.Engine" Value="^1.82.0" />
+      <Property Id="Microsoft.VisualStudio.Code.ExtensionDependencies" Value="" />
+    </Properties>
+  </Metadata>
+  <Installation>
+    <InstallationTarget Id="Microsoft.VisualStudio.Code" Version="[1.82,)" />
+  </Installation>
+  <Dependencies />
+  <Assets>
+    <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" />
+  </Assets>
+</PackageManifest>"""
+
+
+@app.post(
+    "/api/v1/download/vscode-extension",
+    tags=["Admin"],
+    dependencies=[Depends(verify_token)],
+)
+def download_vscode_extension(req: VscodeExtensionBuildRequest):
+    """
+    Gibt ein vorkonfiguriertes VSCode-Extension-Paket (.vsix) zurück.
+    Bettet die Gateway-URL und den API-Token als defaults.json ein –
+    die Extension liest diese beim ersten Start und befüllt die Einstellungen automatisch.
+    """
+    if not _VSCODE_EXT_DIR.exists():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="VSCode-Extension-Dateien nicht gefunden (Volume nicht gemountet?).",
+        )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", _VSIX_CONTENT_TYPES)
+        zf.writestr("extension.vsixmanifest", _VSIX_MANIFEST)
+
+        for rel in _VSCODE_EXT_FILES:
+            src = _VSCODE_EXT_DIR / rel
+            if src.is_file():
+                zf.write(src, f"extension/{rel}")
+
+        defaults = {
+            "gatewayUrl":  req.gateway_url.rstrip("/"),
+            "bearerToken": API_BEARER_TOKEN,
+        }
+        zf.writestr("extension/defaults.json", _json.dumps(defaults))
+
+    buf.seek(0)
+    logger.info("VSCode-Extension-Paket erstellt: gateway=%s", req.gateway_url)
+    return StreamingResponse(
+        buf,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="myfeed-vscode-preconfigured.vsix"'},
     )
 
 

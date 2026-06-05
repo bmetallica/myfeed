@@ -1,0 +1,87 @@
+{
+  "name": "myfeed-vscode",
+  "displayName": "MyFeed",
+  "description": "Sendet VSCode-Kontext (offene Projekte und Dateien) an den MyFeed Gateway zur Interessensgenerierung",
+  "version": "1.0.0",
+  "publisher": "myfeed",
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["myfeed", "personalization", "context"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "myfeed.testConnection",
+        "title": "MyFeed: Gateway-Verbindung testen"
+      },
+      {
+        "command": "myfeed.showStatus",
+        "title": "MyFeed: Status anzeigen"
+      }
+    ],
+    "configuration": {
+      "title": "MyFeed",
+      "properties": {
+        "myfeed.gatewayUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL des MyFeed Gateway-Servers (z.B. http://myfeed.local:8000)"
+        },
+        "myfeed.bearerToken": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "API Bearer Token für die Gateway-Authentifizierung. Generieren via `python3 -c \"import secrets; print(secrets.token_hex(32))\"`",
+          "secret": true
+        },
+        "myfeed.dwellSeconds": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "description": "Mindestverweilzeit (Sekunden) bevor eine Datei als Kontext gesendet wird"
+        },
+        "myfeed.cooldownMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "Cooldown (Minuten) bevor dieselbe Datei erneut gesendet wird"
+        },
+        "myfeed.blocklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "node_modules",
+            ".git",
+            "dist",
+            "build",
+            ".venv",
+            "__pycache__",
+            ".next",
+            "target",
+            "vendor"
+          ],
+          "description": "Pfad-Segmente von Ordnern/Dateien, die NICHT gesendet werden"
+        },
+        "myfeed.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "MyFeed Extension aktivieren/deaktivieren"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.82.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}
