@@ -87,7 +87,8 @@ INSERT INTO system_settings (key, value, updated_at) VALUES
     ('news_schedule',             '',                            NOW()),
     ('news_languages',            'de,en',                       NOW()),
     ('news_timelimit',            'w',                           NOW()),
-    ('long_term_tags_enabled',    'false',                       NOW())
+    ('long_term_tags_enabled',    'false',                       NOW()),
+    ('timeline_enabled',          'true',                        NOW())
 ON CONFLICT (key) DO NOTHING;
 
 -- ============================================================
@@ -156,6 +157,29 @@ CREATE INDEX IF NOT EXISTS idx_news_tag ON news_results (tag_name, found_date DE
 -- Tag-Generierung automatisch aktualisiert (laufender Mittelwert).
 -- Kann optional bei der News-Suche einbezogen werden.
 -- ============================================================
+-- ============================================================
+-- Tabelle: activity_timeline
+-- Persönliche Aktivitäts-Zeitachse, abgeleitet aus context_queue.
+-- Wird bei jedem Ingest-Event ergänzt und NICHT täglich gelöscht.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS activity_timeline (
+    id               BIGSERIAL PRIMARY KEY,
+    activity_date    DATE NOT NULL,
+    activity_ts      TIMESTAMPTZ NOT NULL,
+    source           VARCHAR(64) NOT NULL,
+    title            TEXT NOT NULL,
+    url              TEXT,
+    domain           VARCHAR(255),
+    icon_type        VARCHAR(32) NOT NULL DEFAULT 'web',
+    context_queue_id UUID UNIQUE REFERENCES context_queue(id) ON DELETE CASCADE,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_timeline_date
+    ON activity_timeline(activity_date DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_timeline_ts
+    ON activity_timeline(activity_ts DESC);
+
 CREATE TABLE IF NOT EXISTS long_term_tags (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            VARCHAR(128) NOT NULL UNIQUE,

@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MyFeed – MyActivities</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --surface2: #1c2128;
+      --border:   #30363d;
+      --accent:   #E94560;
+      --blue:     #0F3460;
+      --text:     #c9d1d9;
+      --muted:    #8b949e;
+      --green:    #3fb950;
+      --yellow:   #d29922;
+      --red:      #f85149;
+      --radius:   8px;
+
+      --c-web:    #58a6ff;
+      --c-code:   #79c0ff;
+      --c-search: #f0883e;
+      --c-video:  #f85149;
+      --c-mobile: #3fb950;
+      --c-maps:   #39d353;
+      --c-social: #bc8cff;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    header a.back {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background .15s, color .15s;
+    }
+    header a.back:hover { background: var(--border); color: var(--text); }
+    header h1 { font-size: 18px; font-weight: 700; color: #fff; }
+    header h1 span { color: var(--accent); }
+    header .spacer { flex: 1; }
+
+    /* ── Date Nav ── */
+    .date-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 24px;
+    }
+    .date-nav button {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 5px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background .15s;
+    }
+    .date-nav button:hover { background: var(--border); }
+    .date-nav button.today-btn {
+      color: var(--accent);
+      border-color: var(--accent);
+      font-size: 12px;
+      padding: 5px 10px;
+    }
+    .date-nav input[type="date"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 14px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .date-nav input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(0.8);
+      cursor: pointer;
+    }
+    .date-nav .date-label {
+      font-weight: 600;
+      font-size: 15px;
+      min-width: 130px;
+      text-align: center;
+      color: #fff;
+    }
+
+    /* ── Layout ── */
+    .main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+
+    /* ── Stats ── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      text-align: center;
+    }
+    .stat-card .val { font-size: 26px; font-weight: 700; color: #fff; line-height: 1.2; }
+    .stat-card .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .04em; }
+
+    /* ── Filters ── */
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .filter-pill:hover { border-color: var(--text); color: var(--text); }
+    .filter-pill.active { color: #fff; border-color: transparent; }
+    .filter-pill[data-type="all"].active    { background: var(--border); color: #fff; }
+    .filter-pill[data-type="web"].active    { background: var(--c-web);    color: #000; }
+    .filter-pill[data-type="code"].active   { background: var(--c-code);   color: #000; }
+    .filter-pill[data-type="search"].active { background: var(--c-search); color: #000; }
+    .filter-pill[data-type="video"].active  { background: var(--c-video);  color: #fff; }
+    .filter-pill[data-type="mobile"].active { background: var(--c-mobile); color: #000; }
+    .filter-pill[data-type="social"].active { background: var(--c-social); color: #000; }
+    .filter-pill[data-type="maps"].active   { background: var(--c-maps);   color: #000; }
+    .pill-count {
+      background: rgba(255,255,255,.15);
+      border-radius: 10px;
+      padding: 0 6px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    /* ── Hour Groups ── */
+    .hour-group { margin-bottom: 32px; }
+    .hour-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hour-label::before {
+      content: '';
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--border);
+    }
+    .hour-entries { position: relative; padding-left: 32px; }
+    .hour-entries::before {
+      content: '';
+      position: absolute;
+      left: 10px;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: var(--border);
+    }
+
+    /* ── Timeline Entry ── */
+    .tl-entry {
+      position: relative;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 0;
+      cursor: pointer;
+      border-radius: var(--radius);
+      margin: 4px -8px;
+      padding-left: 8px;
+      padding-right: 8px;
+      transition: background .12s;
+    }
+    .tl-entry:hover { background: var(--surface); }
+    .tl-entry .tl-dot {
+      position: absolute;
+      left: -26px;
+      top: 14px;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      border: 2px solid var(--bg);
+      flex-shrink: 0;
+    }
+    .tl-entry .tl-time {
+      font-size: 11px;
+      color: var(--muted);
+      min-width: 42px;
+      padding-top: 1px;
+      font-variant-numeric: tabular-nums;
+    }
+    .tl-entry .tl-icon {
+      font-size: 15px;
+      min-width: 20px;
+      text-align: center;
+      padding-top: 1px;
+    }
+    .tl-entry .tl-body { flex: 1; min-width: 0; }
+    .tl-entry .tl-title {
+      font-size: 13px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+    .tl-entry:hover .tl-title { color: #fff; }
+    .tl-entry .tl-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+    .tl-entry .tl-domain {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .tl-entry .tl-source-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      border: 1px solid;
+      font-weight: 500;
+    }
+
+    /* Source colors */
+    .dot-web,    .badge-web    { color: var(--c-web);    background: color-mix(in srgb, var(--c-web) 12%, transparent);    border-color: color-mix(in srgb, var(--c-web) 30%, transparent); }
+    .dot-code,   .badge-code   { color: var(--c-code);   background: color-mix(in srgb, var(--c-code) 12%, transparent);   border-color: color-mix(in srgb, var(--c-code) 30%, transparent); }
+    .dot-search, .badge-search { color: var(--c-search); background: color-mix(in srgb, var(--c-search) 12%, transparent); border-color: color-mix(in srgb, var(--c-search) 30%, transparent); }
+    .dot-video,  .badge-video  { color: var(--c-video);  background: color-mix(in srgb, var(--c-video) 12%, transparent);  border-color: color-mix(in srgb, var(--c-video) 30%, transparent); }
+    .dot-mobile, .badge-mobile { color: var(--c-mobile); background: color-mix(in srgb, var(--c-mobile) 12%, transparent); border-color: color-mix(in srgb, var(--c-mobile) 30%, transparent); }
+    .dot-maps,   .badge-maps   { color: var(--c-maps);   background: color-mix(in srgb, var(--c-maps) 12%, transparent);   border-color: color-mix(in srgb, var(--c-maps) 30%, transparent); }
+    .dot-social, .badge-social { color: var(--c-social); background: color-mix(in srgb, var(--c-social) 12%, transparent); border-color: color-mix(in srgb, var(--c-social) 30%, transparent); }
+
+    .tl-dot.dot-web    { background: var(--c-web); }
+    .tl-dot.dot-code   { background: var(--c-code); }
+    .tl-dot.dot-search { background: var(--c-search); }
+    .tl-dot.dot-video  { background: var(--c-video); }
+    .tl-dot.dot-mobile { background: var(--c-mobile); }
+    .tl-dot.dot-maps   { background: var(--c-maps); }
+    .tl-dot.dot-social { background: var(--c-social); }
+
+    /* ── Empty / Loading ── */
+    .empty {
+      text-align: center;
+      padding: 64px 24px;
+      color: var(--muted);
+    }
+    .empty .icon { font-size: 48px; margin-bottom: 16px; }
+    .empty p { font-size: 15px; }
+    .spinner {
+      display: inline-block;
+      width: 32px; height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── No auth screen ── */
+    .auth-screen {
+      max-width: 440px;
+      margin: 80px auto;
+      padding: 32px 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      text-align: center;
+    }
+    .auth-screen h2 { margin-bottom: 8px; }
+    .auth-screen p { color: var(--muted); margin-bottom: 20px; font-size: 13px; }
+    .auth-screen input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 14px;
+      margin-bottom: 8px;
+      font-family: inherit;
+    }
+    .auth-screen button {
+      width: 100%;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      border-radius: 6px;
+      padding: 9px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .auth-error { color: var(--red); font-size: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+<!-- Auth screen (shown when no credentials saved) -->
+<div id="authScreen" class="auth-screen" style="display:none">
+  <div style="font-size:36px;margin-bottom:12px">🔒</div>
+  <h2>MyActivities</h2>
+  <p>Gateway URL und API-Token eingeben, oder im <a href="index.html" style="color:var(--accent)">Admin-Dashboard</a> konfigurieren.</p>
+  <input type="url" id="authUrl" placeholder="https://myfeed.meine-domain.tld">
+  <input type="password" id="authToken" placeholder="Bearer Token">
+  <button id="authBtn">Verbinden</button>
+  <div class="auth-error" id="authError"></div>
+</div>
+
+<!-- Main app (hidden until auth) -->
+<div id="app" style="display:none">
+  <header>
+    <a href="index.html" class="back" title="Admin Dashboard">←</a>
+    <h1>My<span>Feed</span> <span style="color:var(--muted);font-weight:400">MyActivities</span></h1>
+    <div class="spacer"></div>
+  </header>
+
+  <div class="date-nav">
+    <button id="btnPrev">‹</button>
+    <span class="date-label" id="dateLabelText"></span>
+    <button id="btnNext">›</button>
+    <input type="date" id="datePicker">
+    <button class="today-btn" id="btnToday">Heute</button>
+  </div>
+
+  <div class="main">
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card"><div class="val" id="statTotal">—</div><div class="lbl">Aktivitäten</div></div>
+      <div class="stat-card"><div class="val" id="statHours">—</div><div class="lbl">Aktive Stunden</div></div>
+      <div class="stat-card"><div class="val" id="statTopSource">—</div><div class="lbl">Häufigste Quelle</div></div>
+      <div class="stat-card"><div class="val" id="statDomains">—</div><div class="lbl">Domains</div></div>
+    </div>
+
+    <div class="filter-row" id="filterRow"></div>
+
+    <div id="timeline"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ── Config ──────────────────────────────────────────────────
+let GW_URL = '', TOKEN = '';
+
+function loadCredentials() {
+  GW_URL = localStorage.getItem('myfeed_gateway_url') || '';
+  TOKEN  = localStorage.getItem('myfeed_api_key')     || '';
+}
+
+function saveAuthCredentials() {
+  const u = $('authUrl').value.trim().replace(/\/$/, '');
+  const t = $('authToken').value.trim();
+  if (!u || !t) { $('authError').textContent = 'Bitte beide Felder ausfüllen.'; return; }
+  localStorage.setItem('myfeed_gateway_url', u);
+  localStorage.setItem('myfeed_api_key', t);
+  GW_URL = u; TOKEN = t;
+  init();
+}
+
+// ── Icon/Label maps ─────────────────────────────────────────
+const ICON = { web:'🌐', code:'💻', search:'🔍', video:'📺', mobile:'📱', maps:'🗺️', social:'👥' };
+const LABEL = { web:'Web', code:'Code', search:'Suche', video:'Video', mobile:'Android', maps:'Maps', social:'Social' };
+const SOURCE_LABEL = {
+  browser_chrome: 'Chrome', browser_history: 'Verlauf',
+  vscode: 'VSCode', google_activity: 'Android',
+};
+
+function srcLabel(source) {
+  if (source.startsWith('search_')) return 'Suche';
+  return SOURCE_LABEL[source] || source;
+}
+
+// ── Date state ──────────────────────────────────────────────
+let currentDate = new Date().toISOString().slice(0, 10);
+let allEntries  = [];
+let activeFilter = 'all';
+
+// ── API ─────────────────────────────────────────────────────
+async function apiFetch(path) {
+  const r = await fetch(GW_URL + path, {
+    headers: { Authorization: 'Bearer ' + TOKEN }
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ── Date helpers ────────────────────────────────────────────
+function fmtDateLabel(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const today    = new Date().toISOString().slice(0, 10);
+  const yest     = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (dateStr === today) return 'Heute';
+  if (dateStr === yest)  return 'Gestern';
+  return d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// ── Render ──────────────────────────────────────────────────
+function renderFilters(entries) {
+  const counts = { all: entries.length };
+  for (const e of entries) counts[e.icon_type] = (counts[e.icon_type] || 0) + 1;
+
+  const types = ['all', ...Object.keys(ICON).filter(t => counts[t])];
+  const row = $('filterRow');
+  row.innerHTML = '';
+
+  for (const t of types) {
+    const btn = document.createElement('button');
+    btn.className = 'filter-pill' + (t === activeFilter ? ' active' : '');
+    btn.dataset.type = t;
+    btn.innerHTML = (t === 'all' ? '✦ ' : ICON[t] + ' ') +
+      (t === 'all' ? 'Alle' : LABEL[t]) +
+      `<span class="pill-count">${counts[t] || 0}</span>`;
+    btn.addEventListener('click', () => {
+      activeFilter = t;
+      renderFilters(allEntries);
+      renderTimeline(getFiltered());
+    });
+    row.appendChild(btn);
+  }
+}
+
+function getFiltered() {
+  if (activeFilter === 'all') return allEntries;
+  return allEntries.filter(e => e.icon_type === activeFilter);
+}
+
+function renderStats(entries) {
+  $('statTotal').textContent = entries.length;
+
+  const hours = new Set(entries.map(e => e.activity_ts?.slice(11, 13)));
+  $('statHours').textContent = hours.size;
+
+  const srcCounts = {};
+  for (const e of entries) srcCounts[e.source] = (srcCounts[e.source] || 0) + 1;
+  const topSrc = Object.entries(srcCounts).sort((a,b) => b[1]-a[1])[0];
+  $('statTopSource').textContent = topSrc ? srcLabel(topSrc[0]) : '—';
+
+  const domains = new Set(entries.map(e => e.domain).filter(Boolean));
+  $('statDomains').textContent = domains.size;
+}
+
+function fmtTime(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function renderTimeline(entries) {
+  const tl = $('timeline');
+
+  if (!entries.length) {
+    tl.innerHTML = `<div class="empty"><div class="icon">📭</div><p>Keine Aktivitäten für diesen Tag.</p></div>`;
+    return;
+  }
+
+  // Group by local hour
+  const groups = {};
+  for (const e of entries) {
+    const h = e.activity_ts ? new Date(e.activity_ts).getHours() : 0;
+    const key = String(h).padStart(2, '0') + ':00';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(e);
+  }
+
+  const sortedHours = Object.keys(groups).sort();
+  tl.innerHTML = '';
+
+  for (const hour of sortedHours) {
+    const group = document.createElement('div');
+    group.className = 'hour-group';
+
+    const label = document.createElement('div');
+    label.className = 'hour-label';
+    label.textContent = hour + ' Uhr';
+    group.appendChild(label);
+
+    const entriesDiv = document.createElement('div');
+    entriesDiv.className = 'hour-entries';
+
+    for (const e of groups[hour]) {
+      const row = document.createElement('div');
+      row.className = 'tl-entry';
+      if (e.url) {
+        row.addEventListener('click', () => window.open(e.url, '_blank', 'noopener'));
+        row.style.cursor = 'pointer';
+      }
+
+      const dot = document.createElement('div');
+      dot.className = `tl-dot dot-${e.icon_type}`;
+      entriesDiv.appendChild(dot);
+
+      row.innerHTML = `
+        <div class="tl-time">${fmtTime(e.activity_ts)}</div>
+        <div class="tl-icon">${ICON[e.icon_type] || '•'}</div>
+        <div class="tl-body">
+          <div class="tl-title">${escHtml(e.title)}</div>
+          <div class="tl-meta">
+            ${e.domain ? `<span class="tl-domain">${escHtml(e.domain)}</span>` : ''}
+            <span class="tl-source-badge badge-${e.icon_type}">${escHtml(srcLabel(e.source))}</span>
+          </div>
+        </div>
+      `;
+      entriesDiv.appendChild(row);
+    }
+
+    group.appendChild(entriesDiv);
+    tl.appendChild(group);
+  }
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Load data ────────────────────────────────────────────────
+async function loadDate(dateStr) {
+  currentDate = dateStr;
+  $('datePicker').value = dateStr;
+  $('dateLabelText').textContent = fmtDateLabel(dateStr);
+  $('btnNext').disabled = dateStr >= new Date().toISOString().slice(0, 10);
+
+  const tl = $('timeline');
+  tl.innerHTML = `<div class="empty"><div class="spinner"></div><p>Lade Aktivitäten…</p></div>`;
+  $('statTotal').textContent = $('statHours').textContent = $('statTopSource').textContent = $('statDomains').textContent = '…';
+
+  try {
+    const data = await apiFetch(`/api/v1/timeline?date=${dateStr}`);
+    allEntries = data.entries || [];
+    activeFilter = 'all';
+    renderStats(allEntries);
+    renderFilters(allEntries);
+    renderTimeline(allEntries);
+  } catch (err) {
+    tl.innerHTML = `<div class="empty"><div class="icon">⚠️</div><p>Fehler: ${escHtml(err.message)}</p></div>`;
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────────
+function init() {
+  if (!GW_URL || !TOKEN) {
+    $('authScreen').style.display = 'block';
+    $('app').style.display        = 'none';
+    return;
+  }
+  $('authScreen').style.display = 'none';
+  $('app').style.display        = 'block';
+  loadDate(currentDate);
+}
+
+// ── Events ───────────────────────────────────────────────────
+$('btnPrev').addEventListener('click', () => loadDate(addDays(currentDate, -1)));
+$('btnNext').addEventListener('click', () => loadDate(addDays(currentDate,  1)));
+$('btnToday').addEventListener('click', () => loadDate(new Date().toISOString().slice(0, 10)));
+$('datePicker').addEventListener('change', () => loadDate($('datePicker').value));
+$('authBtn').addEventListener('click', saveAuthCredentials);
+
+// ── Boot ─────────────────────────────────────────────────────
+loadCredentials();
+init();
+</script>
+</body>
+</html>

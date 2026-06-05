@@ -36,7 +36,7 @@ try:
 except ImportError:
     _LANGDETECT_OK = False
 from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query, Request, status
-from urllib.parse import unquote as _url_unquote
+from urllib.parse import unquote as _url_unquote, urlparse as _urlparse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -300,6 +300,185 @@ def _insert_context(payload: ContextPayload) -> str:
         raise
     finally:
         _pool.putconn(conn)
+
+
+# ── Timeline-Hilfs-Funktionen ────────────────────────────────
+
+_tl_cache: dict = {"enabled": True, "ts": 0.0}
+
+
+def _timeline_enabled() -> bool:
+    """Prüft ob Timeline aktiviert ist (gecacht 60 s)."""
+    import time
+    now = time.monotonic()
+    if now - _tl_cache["ts"] > 60:
+        val = _get_setting("timeline_enabled")
+        _tl_cache["enabled"] = (val or "true").lower() == "true"
+        _tl_cache["ts"] = now
+    return bool(_tl_cache["enabled"])
+
+
+def _derive_icon_type(source: str, url: Optional[str]) -> str:
+    if source.startswith("search_"):
+        return "search"
+    if source == "vscode":
+        return "code"
+    if source == "google_activity":
+        if url:
+            if "youtube.com" in url or "youtu.be" in url:
+                return "video"
+            if "maps.google" in url or "google.com/maps" in url:
+                return "maps"
+        return "mobile"
+    if url:
+        if "youtube.com" in url or "youtu.be" in url:
+            return "video"
+        if "github.com" in url or "gitlab.com" in url:
+            return "code"
+        if any(d in url for d in ("reddit.com", "twitter.com", "x.com/", "instagram.com", "facebook.com", "linkedin.com")):
+            return "social"
+    return "web"
+
+
+def _insert_timeline_entry(
+    queue_id: str,
+    source: str,
+    title: str,
+    url: Optional[str],
+    activity_ts: datetime,
+) -> None:
+    assert _pool is not None
+    domain: Optional[str] = None
+    if url:
+        try:
+            domain = _urlparse(url).netloc or None
+        except Exception:
+            pass
+    icon_type = _derive_icon_type(source, url)
+    activity_date = activity_ts.date()
+    conn = _pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO activity_timeline
+                    (activity_date, activity_ts, source, title, url, domain, icon_type, context_queue_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::uuid)
+                ON CONFLICT (context_queue_id) DO NOTHING
+                """,
+                (activity_date, activity_ts, source, title, url, domain, icon_type, queue_id),
+            )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _pool.putconn(conn)
+
+
+def _get_timeline_entries(target_date: date) -> list:
+    assert _pool is not None
+    conn = _pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, activity_ts, source, title, url, domain, icon_type
+                FROM activity_timeline
+                WHERE activity_date = %s
+                ORDER BY activity_ts ASC
+                """,
+                (target_date,),
+            )
+            rows = cur.fetchall()
+    finally:
+        _pool.putconn(conn)
+    return [
+        {
+            "id": r[0],
+            "activity_ts": r[1].isoformat() if r[1] else None,
+            "source": r[2],
+            "title": r[3],
+            "url": r[4],
+            "domain": r[5],
+            "icon_type": r[6],
+        }
+        for r in rows
+    ]
+
+
+def _get_timeline_dates(months: int = 3) -> list:
+    assert _pool is not None
+    conn = _pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT activity_date, COUNT(*) as cnt
+                FROM activity_timeline
+                WHERE activity_date >= CURRENT_DATE - (%s * 31)
+                GROUP BY activity_date
+                ORDER BY activity_date DESC
+                """,
+                (months,),
+            )
+            rows = cur.fetchall()
+    finally:
+        _pool.putconn(conn)
+    return [{"date": r[0].isoformat(), "count": r[1]} for r in rows]
+
+
+def _timeline_backfill_sql() -> int:
+    """Befüllt activity_timeline mit allen noch nicht erfassten context_queue-Einträgen."""
+    assert _pool is not None
+    conn = _pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO activity_timeline
+                    (activity_date, activity_ts, source, title, url, domain, icon_type, context_queue_id)
+                SELECT
+                    (created_at AT TIME ZONE 'UTC')::date,
+                    created_at,
+                    source,
+                    title,
+                    url,
+                    CASE WHEN url ~ '^https?://'
+                         THEN regexp_replace(url, '^https?://([^/?#]+).*', E'\\\\1')
+                         ELSE NULL END,
+                    CASE
+                        WHEN source LIKE 'search_%%'                                          THEN 'search'
+                        WHEN source = 'vscode'                                                THEN 'code'
+                        WHEN source = 'google_activity'
+                             AND (url LIKE '%%youtube.com%%' OR url LIKE '%%youtu.be%%')      THEN 'video'
+                        WHEN source = 'google_activity'
+                             AND (url LIKE '%%maps.google%%' OR url LIKE '%%google.com/maps%%') THEN 'maps'
+                        WHEN source = 'google_activity'                                       THEN 'mobile'
+                        WHEN url LIKE '%%youtube.com%%' OR url LIKE '%%youtu.be%%'            THEN 'video'
+                        WHEN url LIKE '%%github.com%%'  OR url LIKE '%%gitlab.com%%'          THEN 'code'
+                        WHEN url LIKE '%%reddit.com%%'  OR url LIKE '%%twitter.com%%'
+                          OR url LIKE '%%instagram.com%%' OR url LIKE '%%facebook.com%%'
+                          OR url LIKE '%%linkedin.com%%'                                      THEN 'social'
+                        ELSE 'web'
+                    END,
+                    id
+                FROM context_queue
+                WHERE id NOT IN (
+                    SELECT context_queue_id FROM activity_timeline
+                    WHERE context_queue_id IS NOT NULL
+                )
+                ON CONFLICT (context_queue_id) DO NOTHING
+                """
+            )
+            count = cur.rowcount
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _pool.putconn(conn)
+    return count
 
 
 # ── Hilfs-Funktionen: Ollama-Einstellungen ───────────────────
@@ -939,6 +1118,14 @@ def ingest_context(payload: ContextPayload, request: Request):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Datenbankfehler. Bitte später erneut versuchen.",
         ) from exc
+
+    if _timeline_enabled():
+        try:
+            activity_ts = payload.timestamp if isinstance(payload.timestamp, datetime) \
+                else datetime.now(timezone.utc)
+            _insert_timeline_entry(new_id, payload.source, payload.title, payload.url, activity_ts)
+        except Exception as exc:
+            logger.warning("Timeline-Insert fehlgeschlagen: %s", exc)
 
     return {"id": new_id, "status": "queued"}
 
@@ -2266,6 +2453,86 @@ def _rfc2822_date(date_str: str) -> str:
         return _rfc2822_dt(dt)
     except Exception:
         return ""
+
+
+# ── Timeline-Endpunkte ────────────────────────────────────────
+
+@app.get(
+    "/api/v1/timeline",
+    tags=["Timeline"],
+    dependencies=[Depends(verify_token)],
+)
+def get_timeline(
+    date_str: Optional[str] = Query(default=None, description="Datum YYYY-MM-DD (Standard: heute)"),
+):
+    """Liefert alle Aktivitäts-Einträge für einen Tag."""
+    if date_str:
+        try:
+            target = date.fromisoformat(date_str)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date_str muss Format YYYY-MM-DD haben.")
+    else:
+        target = datetime.now(tz=_BERLIN).date()
+    try:
+        entries = _get_timeline_entries(target)
+        return {"date": target.isoformat(), "entries": entries, "total": len(entries)}
+    except psycopg2.Error as exc:
+        raise HTTPException(status_code=503, detail="Datenbankfehler.") from exc
+
+
+@app.get(
+    "/api/v1/timeline/dates",
+    tags=["Timeline"],
+    dependencies=[Depends(verify_token)],
+)
+def get_timeline_dates(months: int = Query(default=3, ge=1, le=24)):
+    """Liefert alle Daten mit Aktivitäts-Einträgen der letzten N Monate."""
+    try:
+        return {"dates": _get_timeline_dates(months)}
+    except psycopg2.Error as exc:
+        raise HTTPException(status_code=503, detail="Datenbankfehler.") from exc
+
+
+@app.post(
+    "/api/v1/timeline/backfill",
+    tags=["Timeline"],
+    dependencies=[Depends(verify_token)],
+    status_code=202,
+)
+def timeline_backfill_endpoint(background_tasks: BackgroundTasks):
+    """Befüllt activity_timeline mit allen historischen context_queue-Einträgen."""
+    def _run():
+        try:
+            count = _timeline_backfill_sql()
+            logger.info("Timeline Backfill: %d Einträge eingefügt.", count)
+        except Exception as exc:
+            logger.error("Timeline Backfill fehlgeschlagen: %s", exc)
+    background_tasks.add_task(_run)
+    return {"status": "backfill gestartet"}
+
+
+@app.get(
+    "/api/v1/settings/timeline",
+    tags=["Timeline"],
+    dependencies=[Depends(verify_token)],
+)
+def get_timeline_settings():
+    """Liefert Timeline-Einstellungen."""
+    val = _get_setting("timeline_enabled") or "true"
+    return {"timeline_enabled": val}
+
+
+@app.put(
+    "/api/v1/settings/timeline",
+    tags=["Timeline"],
+    dependencies=[Depends(verify_token)],
+)
+def update_timeline_settings(payload: SettingsBulkPayload):
+    """Aktualisiert Timeline-Einstellungen."""
+    if "timeline_enabled" in payload.settings:
+        _upsert_setting("timeline_enabled", str(payload.settings["timeline_enabled"]))
+        _tl_cache["ts"] = 0.0  # Cache invalidieren
+    return {"status": "ok"}
 
 
 # ── RSS-Feed-Endpunkt ─────────────────────────────────────────

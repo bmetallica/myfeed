@@ -270,6 +270,7 @@ header p { color: var(--muted); font-size: 12px; margin-top: 2px; }
     <h1>My<span>Feed</span> <span style="color:var(--muted);font-weight:400">Admin Dashboard</span></h1>
     <p>Google Android Sync · Kontext-Erfassung</p>
     <a id="rssHeaderLink" class="rss-header-link">RSS Feed: -</a>
+    <a href="timeline.html" style="display:inline-block;margin-top:6px;color:var(--accent);font-size:13px;font-weight:600;text-decoration:none">📅 MyActivities →</a>
   </header>
 
   <div class="container">
@@ -303,6 +304,27 @@ header p { color: var(--muted); font-size: 12px; margin-top: 2px; }
         <button id="btnDlVscode">↓ VSCode (.vsix)</button>
       </div>
       <div class="status" id="statusDownload"></div>
+    </div>
+
+    <!-- ── MyActivities Timeline ── -->
+    <div class="card">
+      <h2>📅 MyActivities <span class="badge">Persönliche Zeitachse</span></h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">
+        Erstellt eine tagesweise Zeitachse aller erfassten Aktivitäten — Webseiten, VSCode-Projekte,
+        Suchanfragen und Android-Aktivitäten. Die Daten werden dauerhaft gespeichert und nicht täglich gelöscht.
+      </p>
+      <div class="toggle-group" style="margin-bottom:14px">
+        <input type="checkbox" id="timelineEnabled">
+        <label for="timelineEnabled">Timeline-Erfassung aktivieren</label>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a href="timeline.html" style="display:inline-block">
+          <button type="button">📅 MyActivities öffnen</button>
+        </a>
+        <button type="button" class="secondary" id="btnTimelineBackfill">↺ Historische Daten einlesen</button>
+        <button type="button" id="btnSaveTimeline">Speichern</button>
+      </div>
+      <div class="status" id="statusTimeline"></div>
     </div>
 
     <!-- ── 3. Android Chrome Sync via noVNC ── -->
@@ -1222,12 +1244,62 @@ header p { color: var(--muted); font-size: 12px; margin-top: 2px; }
       }
     });
 
+    // ── Timeline-Einstellungen ────────────────────────────────────────────────
+    async function loadTimelineSettings() {
+      const { url, token } = getConfig();
+      if (!url || !token) return;
+      try {
+        const r = await fetch(`${url}/api/v1/settings/timeline`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        $('timelineEnabled').checked = (d.timeline_enabled || 'true') === 'true';
+      } catch (_) {}
+    }
+
+    $('btnSaveTimeline').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) { showStatus('statusTimeline', 'Bitte zuerst Gateway URL und Token speichern.', 'warn'); return; }
+      try {
+        const r = await fetch(`${url}/api/v1/settings/timeline`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings: { timeline_enabled: $('timelineEnabled').checked ? 'true' : 'false' } }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        showStatus('statusTimeline', '✓ Gespeichert.', 'ok');
+      } catch (e) {
+        showStatus('statusTimeline', `❌ ${e.message}`, 'error');
+      }
+    });
+
+    $('btnTimelineBackfill').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) { showStatus('statusTimeline', 'Bitte zuerst Gateway URL und Token speichern.', 'warn'); return; }
+      $('btnTimelineBackfill').disabled = true;
+      showStatus('statusTimeline', '<span class="spinner"></span>Backfill läuft…', 'info');
+      try {
+        const r = await fetch(`${url}/api/v1/timeline/backfill`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        showStatus('statusTimeline', '✓ Backfill gestartet – historische Einträge werden eingelesen.', 'ok');
+      } catch (e) {
+        showStatus('statusTimeline', `❌ ${e.message}`, 'error');
+      } finally {
+        $('btnTimelineBackfill').disabled = false;
+      }
+    });
+
     // ── Init ──────────────────────────────────────────────────────────────────
     loadSettings();
     loadOllamaSettings();
     loadTags();
     loadLongTermTags();
     loadNewsSettings();
+    loadTimelineSettings();
     loadNews();
     updateRssUrl(localStorage.getItem('myfeed_gateway') || '');
   </script>
