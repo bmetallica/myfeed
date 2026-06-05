@@ -387,6 +387,24 @@ header p { color: var(--muted); font-size: 12px; margin-top: 2px; }
       <div class="status" id="statusOllama"></div>
     </div>
 
+    <!-- ── Kontext-Suche ── -->
+    <div class="card">
+      <h2>🔍 Kontext-Suche</h2>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+        <div style="flex:1;min-width:200px">
+          <label for="searchQuery">Suchbegriff</label>
+          <input type="text" id="searchQuery" placeholder="Stichwort oder URL-Fragment…" style="margin-bottom:0">
+        </div>
+        <div>
+          <label for="searchDays">Zeitraum</label>
+          <input type="number" id="searchDays" min="1" max="365" value="30" style="width:64px;margin-bottom:0">
+          <span style="font-size:12px;color:var(--muted)">Tage</span>
+        </div>
+        <button id="btnSearch" style="height:36px">Suchen</button>
+      </div>
+      <div id="searchResults" style="font-size:13px;color:var(--muted)">Gib einen Suchbegriff ein und klicke Suchen.</div>
+    </div>
+
     <!-- ── 6. Tags ── -->
     <div class="card">
       <h2>🏷️ Tags</h2>
@@ -394,7 +412,21 @@ header p { color: var(--muted); font-size: 12px; margin-top: 2px; }
       <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
         <button id="btnGenerateTags">Jetzt generieren</button>
         <button class="secondary" id="btnRefreshTags">↻ Aktualisieren</button>
+        <button class="secondary" id="btnClusterTags" title="K-Means-Clustering der Embeddings → neue Auto-Tags">🔀 Clustering</button>
         <span id="tagsGenStatus" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div id="clusterControls" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:10px;background:var(--bg2);border-radius:8px">
+        <div>
+          <label for="clusterDays" style="font-size:12px">Zeitraum</label>
+          <input type="number" id="clusterDays" min="1" max="90" value="7" style="width:64px;margin-bottom:0">
+          <span style="font-size:12px;color:var(--muted)">Tage</span>
+        </div>
+        <div>
+          <label for="clusterN" style="font-size:12px">Cluster</label>
+          <input type="number" id="clusterN" min="2" max="20" value="5" style="width:54px;margin-bottom:0">
+        </div>
+        <button id="btnRunCluster" style="height:36px">▶ Ausführen</button>
+        <span id="clusterStatus" style="font-size:12px;color:var(--muted)"></span>
       </div>
 
       <div class="section-label">KI-generierte Tags</div>
@@ -1068,6 +1100,75 @@ header p { color: var(--muted); font-size: 12px; margin-top: 2px; }
         $('tagsGenStatus').textContent = `❌ ${e.message}`;
       } finally {
         $('btnGenerateTags').disabled = false;
+      }
+    });
+
+    // ── Kontext-Suche ─────────────────────────────────────────────────────────
+    $('btnSearch').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) { $('searchResults').innerHTML = '<span style="color:var(--warn)">Bitte zuerst Gateway URL und Token speichern.</span>'; return; }
+      const q    = $('searchQuery').value.trim();
+      const days = parseInt($('searchDays').value, 10) || 30;
+      if (q.length < 2) { $('searchResults').innerHTML = '<span style="color:var(--warn)">Mindestens 2 Zeichen eingeben.</span>'; return; }
+      $('searchResults').textContent = '⏳ Suche läuft …';
+      try {
+        const r = await fetch(`${url}/api/v1/search?q=${encodeURIComponent(q)}&days=${days}&limit=30`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(15000),
+        });
+        const data = await r.json();
+        const results = data.results || [];
+        if (!results.length) {
+          $('searchResults').innerHTML = `<span style="color:var(--muted)">Keine Ergebnisse für „${q}" in den letzten ${days} Tagen.</span>`;
+          return;
+        }
+        $('searchResults').innerHTML = results.map(e => {
+          const date = new Date(e.created_at).toLocaleDateString('de-DE');
+          const href = e.url ? `<a href="${e.url}" target="_blank" rel="noopener" style="color:var(--accent)">${e.url.substring(0,60)}${e.url.length>60?'…':''}</a>` : '';
+          return `<div style="border-bottom:1px solid var(--border);padding:8px 0">
+            <span style="font-size:11px;color:var(--muted);margin-right:8px">${date}</span>
+            <span style="font-size:11px;background:var(--bg2);border-radius:4px;padding:1px 6px;margin-right:6px">${e.source}</span>
+            <span style="font-weight:500">${e.title}</span><br>
+            ${href}
+          </div>`;
+        }).join('');
+      } catch (e) {
+        $('searchResults').innerHTML = `<span style="color:var(--error)">❌ ${e.message}</span>`;
+      }
+    });
+    $('searchQuery').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnSearch').click(); });
+
+    // ── Tag-Clustering ────────────────────────────────────────────────────────
+    let _clusterPanelOpen = false;
+    $('btnClusterTags').addEventListener('click', () => {
+      _clusterPanelOpen = !_clusterPanelOpen;
+      $('clusterControls').style.display = _clusterPanelOpen ? 'flex' : 'none';
+    });
+    $('clusterControls').style.display = 'none';
+
+    $('btnRunCluster').addEventListener('click', async () => {
+      const { url, token } = getConfig();
+      if (!url || !token) { $('clusterStatus').textContent = '❌ Config fehlt'; return; }
+      const days = parseInt($('clusterDays').value, 10) || 7;
+      const n    = parseInt($('clusterN').value, 10)    || 5;
+      $('clusterStatus').textContent = '⏳ Clustering läuft …';
+      $('btnRunCluster').disabled = true;
+      try {
+        const r = await fetch(`${url}/api/v1/tags/cluster?days=${days}&n=${n}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(120000),
+        });
+        const data = await r.json();
+        const tags = data.tags_generated || [];
+        $('clusterStatus').textContent = tags.length
+          ? `✓ ${tags.length} Tags: ${tags.join(', ')}`
+          : '⚠️ Keine Tags erzeugt (zu wenig Embeddings?)';
+        if (tags.length) { loadTags(); loadLongTermTags(); }
+      } catch (e) {
+        $('clusterStatus').textContent = `❌ ${e.message}`;
+      } finally {
+        $('btnRunCluster').disabled = false;
       }
     });
 

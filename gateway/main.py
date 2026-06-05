@@ -36,7 +36,13 @@ try:
 except ImportError:
     _LANGDETECT_OK = False
 from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query, Request, status
-from urllib.parse import unquote as _url_unquote, urlparse as _urlparse
+from urllib.parse import (
+    unquote as _url_unquote,
+    urlparse as _urlparse,
+    urlunparse as _urlunparse,
+    parse_qs as _parse_qs,
+    urlencode as _urlencode,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -272,29 +278,85 @@ def _get_setting(key: str) -> Optional[str]:
         _pool.putconn(conn)
 
 
-def _insert_context(payload: ContextPayload) -> str:
+# ── URL-Normalisierung ────────────────────────────────────────
+
+_TRACKING_PARAMS = frozenset({
+    # Google Analytics / Ads
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "utm_id", "utm_name", "utm_reader",
+    "_ga", "_gl", "_gid", "gclid", "gclsrc", "dclid", "gbraid", "wbraid",
+    # Meta / Facebook
+    "fbclid", "fb_action_ids", "fb_action_types",
+    # Microsoft
+    "msclkid",
+    # Twitter / X
+    "twclid",
+    # Mailchimp
+    "mc_cid", "mc_eid",
+    # Instagram
+    "igshid",
+    # Adobe
+    "s_cid",
+})
+
+
+def _normalize_url(url: Optional[str]) -> Optional[str]:
+    """Entfernt Tracking-Parameter und URL-Fragmente."""
+    if not url:
+        return url
+    try:
+        p = _urlparse(url)
+        if not p.scheme or not p.netloc:
+            return url
+        qs = {k: v for k, v in _parse_qs(p.query, keep_blank_values=False).items()
+              if k.lower() not in _TRACKING_PARAMS}
+        return _urlunparse(p._replace(query=_urlencode(qs, doseq=True), fragment=""))
+    except Exception:
+        return url
+
+
+def _insert_context(payload: ContextPayload) -> tuple[str, bool]:
     """
-    Schreibt einen Kontext-Eintrag in context_queue und gibt die neue UUID zurück.
-    Kein Embedding – das ist Aufgabe des asynchronen KI-Workers.
+    Schreibt einen Kontext-Eintrag in context_queue.
+    Gibt (UUID, is_new) zurück. Bei URL-Duplikaten (selbe Source+URL am selben Tag)
+    wird der bestehende Eintrag zurückgegeben und is_new=False gesetzt.
     """
     assert _pool is not None, "DB-Pool wurde nicht initialisiert."
 
+    normalized_url = _normalize_url(payload.url)
     created_at = payload.timestamp or datetime.now(timezone.utc)
 
     conn = _pool.getconn()
     try:
         with conn.cursor() as cur:
+            # Dedup: selbe Source+URL am gleichen Tag (Berlin) nicht doppelt speichern.
+            # Suchanfragen (search_*) werden nie dedupliziert.
+            if normalized_url and not payload.source.startswith("search_"):
+                cur.execute(
+                    """
+                    SELECT id::text FROM context_queue
+                    WHERE source = %s AND url = %s
+                      AND (created_at AT TIME ZONE 'Europe/Berlin')::date
+                          = (%s::timestamptz AT TIME ZONE 'Europe/Berlin')::date
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (payload.source, normalized_url, created_at),
+                )
+                row = cur.fetchone()
+                if row:
+                    return row[0], False
+
             cur.execute(
                 """
                 INSERT INTO context_queue (source, title, url, content, created_at, processed)
                 VALUES (%s, %s, %s, %s, %s, false)
                 RETURNING id::text
                 """,
-                (payload.source, payload.title, payload.url, payload.content, created_at),
+                (payload.source, payload.title, normalized_url, payload.content, created_at),
             )
             row = cur.fetchone()
             conn.commit()
-            return row[0]  # type: ignore[index]
+            return row[0], True  # type: ignore[index]
     except Exception:
         conn.rollback()
         raise
@@ -348,6 +410,7 @@ def _insert_timeline_entry(
     activity_ts: datetime,
 ) -> None:
     assert _pool is not None
+    url = _normalize_url(url)
     domain: Optional[str] = None
     if url:
         try:
@@ -479,6 +542,150 @@ def _timeline_backfill_sql() -> int:
     finally:
         _pool.putconn(conn)
     return count
+
+
+# ── Hilfs-Funktionen: Semantische Suche & Clustering ─────────
+
+def _find_similar(entry_id: str, limit: int = 10, days: int = 30) -> list[dict]:
+    """Gibt ähnliche Einträge via pgvector <=> (cosine distance) zurück."""
+    conn = _pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT embedding FROM context_queue WHERE id = %s::uuid""",
+                (entry_id,),
+            )
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return []
+            cur.execute(
+                """SELECT id::text, source, title, url, created_at,
+                          1 - (embedding <=> %s::vector) AS similarity
+                   FROM context_queue
+                   WHERE id != %s::uuid
+                     AND embedding IS NOT NULL
+                     AND created_at >= NOW() - INTERVAL '%s days'
+                   ORDER BY embedding <=> %s::vector
+                   LIMIT %s""",
+                (row[0], entry_id, days, row[0], limit),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    finally:
+        _pool.putconn(conn)
+
+
+def _text_search(query: str, limit: int = 20, days: int = 30) -> list[dict]:
+    """Volltextsuche via ILIKE auf title + url."""
+    pattern = f"%{query}%"
+    conn = _pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id::text, source, title, url, created_at
+                   FROM context_queue
+                   WHERE (title ILIKE %s OR url ILIKE %s)
+                     AND created_at >= NOW() - INTERVAL '%s days'
+                   ORDER BY created_at DESC
+                   LIMIT %s""",
+                (pattern, pattern, days, limit),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    finally:
+        _pool.putconn(conn)
+
+
+def _cluster_interests(days: int = 7, n_clusters: int = 5) -> list[str]:
+    """
+    K-Means-Clustering der gespeicherten Embeddings → Ollama benennt Cluster → Tags.
+    Gibt die generierten Tag-Namen zurück.
+    """
+    try:
+        import numpy as np
+        from sklearn.cluster import KMeans
+    except ImportError:
+        raise RuntimeError("scikit-learn / numpy nicht installiert")
+
+    conn = _pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id::text, title, embedding
+                   FROM context_queue
+                   WHERE embedding IS NOT NULL
+                     AND created_at >= NOW() - INTERVAL '%s days'
+                   ORDER BY created_at DESC
+                   LIMIT 2000""",
+                (days,),
+            )
+            rows = cur.fetchall()
+    finally:
+        _pool.putconn(conn)
+
+    if len(rows) < n_clusters:
+        return []
+
+    ids = [r[0] for r in rows]
+    titles = [r[1] for r in rows]
+
+    # pgvector gibt Vektoren als list/str zurück – sicherstellen dass es ein float-Array ist
+    def _parse_vec(v):
+        if isinstance(v, list):
+            return v
+        # string-Form "[0.1,0.2,...]"
+        return [float(x) for x in str(v).strip("[]").split(",")]
+
+    vecs = np.array([_parse_vec(r[2]) for r in rows], dtype=np.float32)
+
+    actual_k = min(n_clusters, len(vecs))
+    km = KMeans(n_clusters=actual_k, n_init="auto", random_state=42)
+    labels = km.fit_predict(vecs)
+
+    # Repräsentativer Titel je Cluster (nächster Centroid-Punkt)
+    tag_names: list[str] = []
+    ollama_settings = _get_ollama_settings()
+    ollama_url = ollama_settings.get("ollama_url", "http://localhost:11434")
+    ollama_model = ollama_settings.get("ollama_model", "")
+
+    for cluster_idx in range(actual_k):
+        members = [(titles[i], vecs[i]) for i in range(len(labels)) if labels[i] == cluster_idx]
+        if not members:
+            continue
+        centroid = km.cluster_centers_[cluster_idx]
+        distances = [np.linalg.norm(v - centroid) for _, v in members]
+        rep_title = members[int(np.argmin(distances))][0]
+        sample_titles = [m[0] for m in members[:8]]
+
+        if ollama_model:
+            prompt = (
+                f"Fasse diese Browser-/Aktivitäts-Einträge in einem kurzen englischen Tag-Namen "
+                f"(1-3 Wörter, keine Sonderzeichen außer Bindestrich) zusammen.\n"
+                f"Repräsentativ: {rep_title}\n"
+                f"Weitere Beispiele: {'; '.join(sample_titles)}\n"
+                f"Antworte nur mit dem Tag-Namen, ohne Erklärung."
+            )
+            import httpx as _httpx
+            try:
+                resp = _httpx.post(
+                    f"{ollama_url}/api/generate",
+                    json={"model": ollama_model, "prompt": prompt, "stream": False},
+                    timeout=30,
+                )
+                tag = resp.json().get("response", "").strip().splitlines()[0].strip()
+            except Exception:
+                tag = rep_title[:32]
+        else:
+            tag = rep_title[:32]
+
+        if tag:
+            tag_names.append(tag)
+
+    if tag_names:
+        today = datetime.now(timezone.utc).date()
+        _upsert_auto_tags(tag_names, today)
+
+    return tag_names
 
 
 # ── Hilfs-Funktionen: Ollama-Einstellungen ───────────────────
@@ -1111,7 +1318,7 @@ def ingest_context(payload: ContextPayload, request: Request):
     """
     logger.info("Neuer Eintrag: source=%s url=%s", payload.source, payload.url)
     try:
-        new_id = _insert_context(payload)
+        new_id, is_new = _insert_context(payload)
     except psycopg2.Error as exc:
         logger.error("Datenbankfehler beim Einfügen: %s", exc)
         raise HTTPException(
@@ -1119,7 +1326,7 @@ def ingest_context(payload: ContextPayload, request: Request):
             detail="Datenbankfehler. Bitte später erneut versuchen.",
         ) from exc
 
-    if _timeline_enabled():
+    if is_new and _timeline_enabled():
         try:
             activity_ts = payload.timestamp if isinstance(payload.timestamp, datetime) \
                 else datetime.now(timezone.utc)
@@ -1127,7 +1334,7 @@ def ingest_context(payload: ContextPayload, request: Request):
         except Exception as exc:
             logger.warning("Timeline-Insert fehlgeschlagen: %s", exc)
 
-    return {"id": new_id, "status": "queued"}
+    return {"id": new_id, "status": "queued" if is_new else "duplicate"}
 
 
 # Alias: PUT auf denselben Endpunkt (für Clients, die PUT bevorzugen)
@@ -2533,6 +2740,69 @@ def update_timeline_settings(payload: SettingsBulkPayload):
         _upsert_setting("timeline_enabled", str(payload.settings["timeline_enabled"]))
         _tl_cache["ts"] = 0.0  # Cache invalidieren
     return {"status": "ok"}
+
+
+# ── Semantische Suche & Clustering ────────────────────────────
+
+@app.get(
+    "/api/v1/similar",
+    tags=["Search"],
+    summary="Ähnliche Einträge via pgvector",
+)
+async def find_similar_entries(
+    id: str = Query(..., description="UUID des Referenz-Eintrags"),
+    limit: int = Query(default=10, ge=1, le=50),
+    days: int = Query(default=30, ge=1, le=365),
+    _=Depends(verify_token),
+):
+    try:
+        results = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _find_similar(id, limit, days)
+        )
+        return {"results": results}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get(
+    "/api/v1/search",
+    tags=["Search"],
+    summary="Volltextsuche in Titeln und URLs",
+)
+async def text_search(
+    q: str = Query(..., min_length=2, description="Suchbegriff"),
+    limit: int = Query(default=20, ge=1, le=100),
+    days: int = Query(default=30, ge=1, le=365),
+    _=Depends(verify_token),
+):
+    try:
+        results = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _text_search(q, limit, days)
+        )
+        return {"results": results, "query": q}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post(
+    "/api/v1/tags/cluster",
+    tags=["Tags"],
+    summary="K-Means-Clustering der Embeddings → neue Auto-Tags",
+)
+async def cluster_tags(
+    days: int = Query(default=7, ge=1, le=90, description="Analysezeitraum in Tagen"),
+    n: int = Query(default=5, ge=2, le=20, description="Anzahl Cluster"),
+    _=Depends(verify_token),
+):
+    def _run():
+        try:
+            return _cluster_interests(days, n)
+        except Exception as exc:
+            logger.error("Clustering fehlgeschlagen: %s", exc)
+            return []
+
+    tags = await asyncio.get_event_loop().run_in_executor(None, _run)
+    return {"status": "ok", "tags_generated": tags}
 
 
 # ── RSS-Feed-Endpunkt ─────────────────────────────────────────

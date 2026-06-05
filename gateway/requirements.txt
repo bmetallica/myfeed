@@ -8,3 +8,5 @@ apscheduler==3.10.4
 ddgs
 langdetect==1.0.9
 google-genai
+scikit-learn>=1.4.0
+numpy>=1.26.0
