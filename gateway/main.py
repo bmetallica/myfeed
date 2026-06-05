@@ -1188,10 +1188,24 @@ async def run_tag_generation(for_date: Optional[date] = None) -> dict:
     _debug_write(run_dir, "00_run_info.txt", run_info)
 
     if not model:
-        msg = "Kein Ollama-Modell konfiguriert – Tag-Generierung übersprungen."
-        logger.warning(msg)
-        _debug_write(run_dir, "00_run_info.txt", run_info + f"\nFehler: {msg}\n")
-        return {"error": "Kein Modell konfiguriert", "date": str(target_date)}
+        logger.info("Kein Ollama-Modell konfiguriert – Fallback auf Embedding-Clustering.")
+        _debug_write(run_dir, "00_run_info.txt", run_info + "\nModus: Clustering-Fallback (kein Ollama-Modell)\n")
+        try:
+            tag_names = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _cluster_interests(days=1, n_clusters=5)
+            )
+        except Exception as exc:
+            logger.error("Clustering-Fallback fehlgeschlagen: %s", exc)
+            _debug_write(run_dir, "00_run_info.txt", run_info + f"\nFehler Clustering: {exc}\n")
+            return {"error": f"Clustering-Fallback fehlgeschlagen: {exc}", "date": str(target_date)}
+        if not tag_names:
+            _debug_write(run_dir, "00_run_info.txt", run_info + "\nErgebnis: Keine Tags (zu wenig Embeddings)\n")
+            return {"skipped": True, "reason": "Keine Embeddings für Clustering", "date": str(target_date)}
+        news_updated = _refresh_news_tag_weights()
+        _debug_write(run_dir, "00_run_info.txt",
+                     run_info + f"\nModus: Clustering-Fallback\nTags: {', '.join(tag_names)}\nNews regewichtet: {news_updated}\n")
+        return {"success": True, "date": str(target_date), "tags_saved": len(tag_names),
+                "tags": [{"tag": t} for t in tag_names], "method": "clustering"}
 
     titles = _get_context_titles_for_date(target_date)
 
