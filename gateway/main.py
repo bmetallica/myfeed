@@ -739,8 +739,8 @@ def _get_context_titles_for_date(target_date: date) -> list:
 
 
 def _effective_weight(tag_weight: int, category_weight: int) -> int:
-    """Effektives Gewicht = round(tag_weight × category_weight / 10), clamp 1–10."""
-    return max(1, min(10, round(tag_weight * category_weight / 10)))
+    """Effektives Gewicht = arithmetischer Durchschnitt, clamp 1–10."""
+    return max(1, min(10, round((tag_weight + category_weight) / 2)))
 
 
 def _get_tags() -> list:
@@ -754,7 +754,7 @@ def _get_tags() -> list:
                 SELECT id::text, name, weight, type, source_date, persistent,
                        category, category_weight, created_at, updated_at
                 FROM tags
-                ORDER BY weight DESC, name ASC
+                ORDER BY name ASC
                 """
             )
             cols = ["id", "name", "weight", "type", "source_date", "persistent",
@@ -767,6 +767,7 @@ def _get_tags() -> list:
                 r["updated_at"]     = r["updated_at"].isoformat()
                 r["effective_weight"] = _effective_weight(r["weight"], r["category_weight"])
                 rows.append(r)
+            rows.sort(key=lambda x: (-x["effective_weight"], x["name"]))
             return rows
     finally:
         _pool.putconn(conn)
@@ -905,13 +906,14 @@ def _upsert_long_term_tags(tags: list, categories_map: Optional[dict] = None,
                     VALUES (%s, %s, %s, %s, 1, %s, %s)
                     ON CONFLICT (name) DO UPDATE
                         SET weight = GREATEST(1, LEAST(10,
-                                ROUND((long_term_tags.weight::numeric
-                                       * long_term_tags.mention_count
-                                       + EXCLUDED.weight::numeric)
-                                      / (long_term_tags.mention_count + 1)
+                                ROUND(0.3 * EXCLUDED.weight::numeric
+                                    + 0.7 * long_term_tags.weight::numeric
+                                )::integer)),
+                            category_weight = GREATEST(1, LEAST(10,
+                                ROUND(0.3 * EXCLUDED.category_weight::numeric
+                                    + 0.7 * long_term_tags.category_weight::numeric
                                 )::integer)),
                             category        = EXCLUDED.category,
-                            category_weight = EXCLUDED.category_weight,
                             mention_count   = long_term_tags.mention_count + 1,
                             last_seen       = EXCLUDED.last_seen,
                             updated_at      = NOW()
@@ -928,6 +930,37 @@ def _upsert_long_term_tags(tags: list, categories_map: Optional[dict] = None,
     return count
 
 
+def _refresh_news_tag_weights() -> int:
+    """
+    Aktualisiert tag_weight in news_results für die letzten 7 Tage
+    anhand der aktuell gespeicherten Tags und ihres effective_weight.
+    Wird nach jeder Tag-Generierung aufgerufen.
+    """
+    assert _pool is not None
+    conn = _pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name, weight, category_weight FROM tags")
+            tag_rows = cur.fetchall()
+            updated = 0
+            for name, w, cw in tag_rows:
+                eff = _effective_weight(w, cw)
+                cur.execute(
+                    """UPDATE news_results SET tag_weight = %s
+                       WHERE tag_name = %s
+                         AND found_date >= CURRENT_DATE - 7""",
+                    (eff, name),
+                )
+                updated += cur.rowcount
+        conn.commit()
+        return updated
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _pool.putconn(conn)
+
+
 def _get_long_term_tags() -> list:
     """Gibt alle Langzeit-Tags zurück, sortiert nach effective_weight DESC."""
     assert _pool is not None
@@ -939,7 +972,7 @@ def _get_long_term_tags() -> list:
                 SELECT id, name, weight, category, category_weight,
                        mention_count, first_seen, last_seen
                 FROM long_term_tags
-                ORDER BY weight DESC, mention_count DESC
+                ORDER BY name ASC
                 """
             )
             rows = cur.fetchall()
@@ -959,6 +992,7 @@ def _get_long_term_tags() -> list:
             "first_seen":      str(row[6]) if row[6] else None,
             "last_seen":       str(row[7]) if row[7] else None,
         })
+    result.sort(key=lambda x: (-x["effective_weight"], -x["mention_count"]))
     return result
 
 
@@ -1229,11 +1263,15 @@ async def run_tag_generation(for_date: Optional[date] = None) -> dict:
     lt_count = _upsert_long_term_tags(tags, categories_map, target_date)
     logger.info("Langzeit-Speicher: %d Tags aktualisiert.", lt_count)
 
+    news_updated = _refresh_news_tag_weights()
+    logger.info("news_results.tag_weight aktualisiert: %d Zeilen.", news_updated)
+
     db_result = {
         "date":             str(target_date),
         "tags_saved":       count,
         "tags_parsed":      len(tags),
         "longterm_updated": lt_count,
+        "news_reweighted":  news_updated,
         "categories":       categories,
         "tags":             tags,
     }
@@ -1245,6 +1283,7 @@ async def run_tag_generation(for_date: Optional[date] = None) -> dict:
                  + f"Kategorien      : {len(categories)}\n"
                  + f"Tags geparst    : {len(tags)}\n"
                  + f"Tags gespeichert: {count}\n"
+                 + f"News regewichtet: {news_updated}\n"
                  + f"Debug-Ordner    : {run_dir}\n")
 
     return {"success": True, "date": str(target_date), "tags_saved": count,
@@ -1957,7 +1996,6 @@ async def _search_news_duckduckgo(
     # Wenn konkrete Sprachen angegeben: mehr Ergebnisse von DDG anfordern,
     # da Sprachfilterung danach einige aussortiert.
     do_lang_filter = bool(lang_list) and _LANGDETECT_OK
-    fetch_max = max_per_tag * 3 if do_lang_filter else max_per_tag
 
     seen_urls: set = set()
     results:   list = []
@@ -1966,10 +2004,12 @@ async def _search_news_duckduckgo(
     for tag in tags:
         if rate_limited:
             break
+        tag_limit = max(1, round(max_per_tag * tag.get("effective_weight", 5) / 10))
+        fetch_limit = tag_limit * 3 if do_lang_filter else tag_limit
         await asyncio.sleep(1.5)
         _kw  = tag["name"]
         _reg = region
-        _max = fetch_max
+        _max = fetch_limit
         _tl  = tl
         try:
             news = await asyncio.to_thread(
@@ -1977,7 +2017,7 @@ async def _search_news_duckduckgo(
             )
             tag_count = 0
             for item in news:
-                if tag_count >= max_per_tag:
+                if tag_count >= tag_limit:
                     break
                 url      = item.get("url", "").strip()
                 headline = item.get("title", "").strip()
@@ -2038,6 +2078,7 @@ async def _search_news_searxng(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for tag in tags:
+            tag_limit = max(1, round(max_per_tag * tag.get("effective_weight", 5) / 10))
             await asyncio.sleep(0.5)
             params: dict = {
                 "q":          tag["name"],
@@ -2054,7 +2095,7 @@ async def _search_news_searxng(
                 data = r.json()
                 tag_count = 0
                 for item in data.get("results", []):
-                    if tag_count >= max_per_tag:
+                    if tag_count >= tag_limit:
                         break
                     url      = (item.get("url") or "").strip()
                     headline = (item.get("title") or "").strip()
