@@ -449,14 +449,18 @@ def _upsert_auto_tags(tags: list, source_date: date, categories_map: Optional[di
         with conn.cursor() as cur:
             # Alte nicht-persistente Auto-Tags vor der Neu-Generierung löschen
             cur.execute("DELETE FROM tags WHERE type = 'auto' AND persistent = false")
+            seen_names: set[str] = set()
             for t in tags:
-                name = str(t.get("tag", "")).strip()
+                name = " ".join(str(t.get("tag", "")).split())
+                if not name or len(name) > 128:
+                    continue
+                if name.lower() in seen_names:
+                    continue
+                seen_names.add(name.lower())
                 try:
                     weight = max(1, min(10, int(t.get("weight", 5))))
                 except (TypeError, ValueError):
                     weight = 5
-                if not name or len(name) > 128:
-                    continue
                 category = str(t.get("category", "")).strip()[:64]
                 try:
                     cat_weight = max(1, min(10, int(_cats.get(category, 5))))
@@ -718,7 +722,9 @@ _DEBUG_DIR = Path("/app/debug")
 
 
 def _debug_write(run_dir: Path, filename: str, content: str) -> None:
-    """Schreibt eine Debug-Datei. Fehler werden nur geloggt, nie weitergeworfen."""
+    """Schreibt eine Debug-Datei. Via ENABLE_DEBUG_LOGS=false komplett deaktivierbar."""
+    if os.environ.get("ENABLE_DEBUG_LOGS", "true").lower() != "true":
+        return
     try:
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / filename).write_text(content, encoding="utf-8")

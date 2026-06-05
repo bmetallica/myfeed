@@ -479,6 +479,7 @@ async function syncChromeHistory() {
     let sent = 0;
     for (const item of results) {
       if (!item.url?.startsWith("http") || !item.title) continue;
+      if ((item.visitCount ?? 0) < 2) continue;
       try {
         const host = new URL(item.url).hostname;
         if (_SKIP_HOSTS.some(d => host === d || host.endsWith("." + d))) continue;

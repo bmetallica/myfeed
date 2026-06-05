@@ -15,6 +15,9 @@ build/
 .venv/
 venv/
 
+# ── VSCode Extension Build Output ────────────────────────────
+vscode-extension/out/
+
 # ── OS / Editor ──────────────────────────────────────────────
 .DS_Store
 Thumbs.db

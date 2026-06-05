@@ -46,6 +46,7 @@ services:
     environment:
       # Datenbankverbindungs-URL für den Gateway-Container
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ENABLE_DEBUG_LOGS: ${ENABLE_DEBUG_LOGS:-true}
     ports:
       - "${GATEWAY_PORT}:8000"
     volumes:
@@ -76,6 +77,29 @@ services:
       - ./frontend:/usr/share/nginx/html:ro
     networks:
       - newsfeed-net
+
+  # ----------------------------------------------------------
+  # Embedding Worker: berechnet pgvector-Embeddings für context_queue
+  # ----------------------------------------------------------
+  embedding-worker:
+    build:
+      context: ./embedding_worker
+      dockerfile: Dockerfile
+    container_name: myfeed-embedding-worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-32}
+      WORKER_POLL_SECS: ${WORKER_POLL_SECS:-30}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+    volumes:
+      # Modell-Cache: verhindert erneuten Download bei Container-Neustart
+      - embedding-models:/models
+    networks:
+      - newsfeed-net
+    depends_on:
+      db:
+        condition: service_healthy
 
   # ----------------------------------------------------------
   # SearXNG: Metasuchmaschine für News-Suche
@@ -133,6 +157,9 @@ volumes:
     driver: local
   # Persistentes Chromium-Profil für den Android-Scraper
   chrome-profile:
+    driver: local
+  # Embedding-Modell-Cache (BAAI/bge-small-en-v1.5 via fastembed)
+  embedding-models:
     driver: local
 
 networks:
